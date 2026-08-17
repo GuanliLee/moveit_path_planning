@@ -150,11 +150,11 @@ grasp_bridge_state_machine:
     # complete gripper orientation at every place target so that axis is world
     # +Z again. XYZ remains unchanged and the opening direction rotates with it.
     # Reach final PLACE while still closed, then release only when live-TCP
-    # prediction says the can tilt is no more than 2 degrees.
+    # prediction says the can tilt is no more than 3.5 degrees.
     place_upright_axis_compensation_enabled: true
     place_upright_axis_compensation_profiles: [grasp]
     place_upright_axis_compensation_arms: [right]
-    place_upright_tilt_limit_deg: 2.0
+    place_upright_tilt_limit_deg: 3.5
     grasp_ik_fallback_profiles: [grasp]
     grasp_ik_fallback_local_y_degrees: [3.0, -3.0, 5.0, -5.0, 8.0, -8.0]
     grasp_ik_fallback_local_z_degrees: [3.0, -3.0, 5.0, -5.0]

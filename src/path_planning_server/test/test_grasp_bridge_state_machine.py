@@ -443,7 +443,7 @@ def test_upright_place_compensation_is_enabled_for_right_grasp_flow() -> None:
     assert parameters["place_upright_axis_compensation_enabled"] is True
     assert parameters["place_upright_axis_compensation_profiles"] == ["grasp"]
     assert parameters["place_upright_axis_compensation_arms"] == ["right"]
-    assert parameters["place_upright_tilt_limit_deg"] == pytest.approx(2.0)
+    assert parameters["place_upright_tilt_limit_deg"] == pytest.approx(3.5)
 
 
 def test_ik_fallback_candidate_order_is_original_then_y_then_z() -> None:

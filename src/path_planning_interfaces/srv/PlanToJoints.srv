@@ -1,0 +1,10 @@
+string arm_name
+uint32 scene_id
+float64[6] joint_positions
+bool gripper_command
+float64 gripper_opening_m
+bool keep_grasp_ellipsoid
+---
+bool success
+string message
+moveit_msgs/RobotTrajectory trajectory

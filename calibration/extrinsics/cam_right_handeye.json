@@ -1,0 +1,32 @@
+{
+  "camera": "cam_right",
+  "mode": "eye_in_hand",
+  "source_result_json": "/home/ligl/agilex_xpc/calibration/results/cam_right_eye_in_hand_checkerboard/2026-08-12_10-17-36_checkerboard_handeye.json",
+  "source_sample_count": 19,
+  "excluded_sample_indexes": [],
+  "parent_frame_note": "/right/gripper_end_pos pose frame",
+  "child_frame": "cam_right_color_optical_frame",
+  "transform_convention": "T_gripper_camera; multiply camera-frame homogeneous points by this matrix to express them in the right gripper pose frame",
+  "translation_m": [-0.08147479695994699, 0.0034468410062691657, -0.018506209500110764],
+  "orientation_xyzw": [-0.1914703368737333, 0.16083260911616, -0.6587907133876735, 0.7095539288147926],
+  "rpy_deg": [-28.931715628725478, -1.377462509795243, -85.39542393252809],
+  "matrix": [
+    [0.0802553355980975, 0.8733057302063422, 0.48051657900306016, -0.08147479695994699],
+    [-0.9964844255973527, 0.05866781210323868, 0.05980700096922684, 0.0034468410062691657],
+    [0.024038940283439503, -0.4836271181517704, 0.8749439638846952, -0.018506209500110764],
+    [0.0, 0.0, 0.0, 1.0]
+  ],
+  "validation": {
+    "verdict": "PASS",
+    "fixed_target_position_error_m": {
+      "mean": 0.002372298739306029,
+      "median": 0.002109655555595811,
+      "max": 0.006123618139117027
+    },
+    "fixed_target_rotation_error_deg": {
+      "mean": 0.44114820766989654,
+      "median": 0.3746384771449803,
+      "max": 0.9628843820793437
+    }
+  }
+}

@@ -1,0 +1,156 @@
+grasp_bridge_state_machine:
+  ros__parameters:
+    default_arm_name: right
+    default_scene_id: 1
+    world_frame: world
+    right_camera_frame: cam_right_color_optical_frame
+    left_camera_frame: cam_left_color_optical_frame
+
+    bridge_service_name: /grasp_bridge/execute_task
+    joint_plan_service_name: /plan_to_joints
+    # Retry each pose candidate once when MoveIt reports a planning failure.
+    planning_retry_attempts: 2
+    cancel_plan_service_name: /cancel_plan_execution
+    cancel_service_timeout_s: 1.0
+    right_target_marker_topic: /rviz/right/planning_tcp_target_markers
+    left_target_marker_topic: /rviz/left/planning_tcp_target_markers
+
+    move_to_capture_pose_before_inference: true
+    # After PLACE opens the gripper and removes the grasp ellipsoid, return to
+    # the same fixed capture pose used as this task profile's initial state.
+    return_to_initial_pose_after_place: true
+    capture_settle_s: 0.5
+    # After every motion/open settle completes, establish a monotonic barrier,
+    # discard two in-flight RGB-D pairs, and use the next fresh synchronized
+    # pair. RealSense header time is only a pairing key; TF is sampled while a
+    # 2 mm / 1 deg stationary gate is satisfied because device global-time can
+    # drift relative to the host ROS clock.
+    sensor_require_post_open_frames: true
+    sensor_sync_timeout_s: 3.0
+    sensor_queue_size: 30
+    sensor_discard_pairs_after_barrier: 2
+    sensor_max_stamp_skew_s: 0.005
+    # Matching capture timestamps stay strict; allow for DDS delivery jitter
+    # between the paired 640x480 RGB and depth messages at the configured 6 FPS.
+    sensor_max_arrival_skew_s: 0.15
+    sensor_max_arrival_age_s: 0.15
+    capture_stationary_translation_m: 0.002
+    capture_stationary_rotation_deg: 1.0
+    capture_tf_max_age_s: 0.20
+    capture_tf_advance_timeout_s: 0.50
+    # Move to the final grasp TCP with the fingers open, save synchronized
+    # wrist RGB/depth plus commanded/actual TCP, then close at the same pose.
+    pre_close_snapshot_enabled: false
+    pre_close_snapshot_settle_s: 0.3
+    pre_close_snapshot_dir: /home/ligl/path_planning_service0807/debug/pre_close
+    right_capture_tcp_frame: world
+    # Captured from the stationary right arm on 2026-08-13. This is the
+    # planning TCP: world -> right_link6, then 0.1358 m along link6 local +Z.
+    right_capture_tcp_position.x: 0.108352102988256
+    right_capture_tcp_position.y: -0.175633901351517
+    right_capture_tcp_position.z: 0.302898888944408
+    right_capture_tcp_orientation.x: -0.411496378423989
+    right_capture_tcp_orientation.y: 0.735836820151214
+    right_capture_tcp_orientation.z: 0.207267982321415
+    right_capture_tcp_orientation.w: 0.496240756244487
+    # Exact J1-J6 feedback captured from /joint_states_right while stationary
+    # at the right-arm restock photo position on 2026-08-14.
+    right_capture_joint_enabled: true
+    right_capture_joint_positions: [1.096756612, 0.376842732, -0.773397184, -0.213252900, 0.928927888, 0.106338624]
+    pick_right_capture_tcp_frame: world
+    pick_right_capture_tcp_position.x: 0.2499762566424679
+    pick_right_capture_tcp_position.y: -0.07059372525262186
+    pick_right_capture_tcp_position.z: 0.4881307321577144
+    pick_right_capture_tcp_orientation.x: -0.016345844888179525
+    pick_right_capture_tcp_orientation.y: 0.6631544890676342
+    pick_right_capture_tcp_orientation.z: 0.19101937284613948
+    pick_right_capture_tcp_orientation.w: 0.7235126371956501
+    left_capture_tcp_frame: world
+    left_capture_tcp_position.x: 0.15539190895708765
+    left_capture_tcp_position.y: 0.1274590002620372
+    left_capture_tcp_position.z: 0.23779375182191775
+    left_capture_tcp_orientation.x: 0.36350251411110196
+    left_capture_tcp_orientation.y: 0.7526950017283746
+    left_capture_tcp_orientation.z: -0.21652479511913097
+    left_capture_tcp_orientation.w: 0.5044136890555695
+
+    right_rgb_topic: /cam_right/color/image_raw
+    right_depth_topic: /cam_right/aligned_depth_to_color/image_raw
+    right_camera_info_topic: /cam_right/color/camera_info
+    left_rgb_topic: /cam_left/color/image_raw
+    left_depth_topic: /cam_left/aligned_depth_to_color/image_raw
+    left_camera_info_topic: /cam_left/color/camera_info
+
+    inference_request_url: ws://192.168.4.121:1234
+    inference_timeout_s: 20.0
+    inference_candidate_count: 1
+    # 0 means send original camera resolution without resizing.
+    inference_image_size: 0
+    depth_uint16_scale: 0.001
+    depth_max_m: 10.0
+
+    # Must match the bridge TCP compensation for current-TCP OPEN/LIFT target
+    # generation. Grasp execution compensation is still performed only by bridge.
+    tcp_to_link6_m: 0.1358
+    # The hand-eye JSON and the 121 observation pose use the 59.3 mm
+    # /<arm>/gripper_end_pos parent. This offset is only for camera/observation
+    # geometry. A returned 121 grasp is already the physical 135.8 mm planning
+    # TCP and must not be rebased by the 76.5 mm difference.
+    link6_to_handeye_parent_m: 0.0593
+
+    open_before_grasp: true
+    # Open first, wait for the fingers to leave the camera view, then capture
+    # the latest RGB-D frames and request remote inference.
+    open_before_inference: true
+    open_before_inference_settle_s: 0.2
+    pick_open_before_inference: true
+    pick_open_settle_s: 0.2
+    # Move to a pre-grasp pose along the reverse 121 approach axis before
+    # descending into the final grasp target.
+    pre_grasp_before_grasp: true
+    pre_grasp_offset_m: 0.06
+    pre_grasp_min_z_m: 0.0
+    # Go straight into the vertical post-grasp lift without an approach-axis
+    # retreat.
+    retreat_after_grasp: false
+    retreat_after_grasp_offset_m: 0.06
+    # After retreating, lift the grasped object vertically by 3 cm before the
+    # single direct plan to the placement waypoint.
+    lift_after_grasp: true
+    lift_offset_m: 0.03
+    # Skip segmented lift/orient/XY transport. The configured pose is the final
+    # PLACE pose; PLACE_WAYPOINT keeps its orientation and is raised by 8 cm.
+    place_lift_before_place: false
+    # Keep the saved placement height as the final PLACE target. Only the
+    # generated waypoint is raised by place_descend_offset_m on world Z.
+    place_lift_height_m: 0.0
+    place_descend_before_place: true
+    place_descend_offset_m: 0.08
+    grasp_z_offset_m: 0.0
+    grasp_orientation_mode: remote
+    pick_grasp_orientation_mode: capture_tcp
+    enable_roll_180_grasp_branch: false
+    vertical_down_tcp_orientation_xyzw: [0.43211536819586643, -0.8948553616659032, -0.06568261530057382, -0.0905316757495029]
+    left_fixed_tcp_orientation_xyzw: [0.4503663340255283, 0.8820263705427539, -0.05742608216588578, 0.12610270389908398]
+    right_fixed_tcp_orientation_xyzw: [0.43211536819586643, -0.8948553616659032, -0.06568261530057382, -0.0905316757495029]
+    default_gripper_width_m: 0.08
+    closed_gripper_width_m: 0.0
+
+    place_frame: world
+    place_position.x: 0.17768991018428854
+    place_position.y: -0.005014409103969657
+    place_position.z: 0.07457964177104534
+    place_orientation.x: 0.7088552596330816
+    place_orientation.y: -0.7027264835289486
+    place_orientation.z: -0.05097324094119514
+    place_orientation.w: -0.03318793373359758
+
+    # Temporary pick drop pose. Replace these when the picking placement pose is measured.
+    pick_place_frame: world
+    pick_place_position.x: 0.17768991018428854
+    pick_place_position.y: -0.005014409103969657
+    pick_place_position.z: 0.07457964177104534
+    pick_place_orientation.x: 0.7088552596330816
+    pick_place_orientation.y: -0.7027264835289486
+    pick_place_orientation.z: -0.05097324094119514
+    pick_place_orientation.w: -0.03318793373359758

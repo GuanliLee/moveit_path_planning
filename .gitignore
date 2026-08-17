@@ -1,0 +1,30 @@
+# ROS 2 / colcon generated output
+build/
+install/
+log/
+
+# Runtime captures and diagnostics
+debug/
+*.bag
+*.db3
+*.mcap
+
+# Python caches and test output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local editor and backup files
+*.orig
+*.pre_*
+*~
+.DS_Store
+.idea/
+.vscode/
+
+# Local virtual environments
+.venv/
+venv/
+env/

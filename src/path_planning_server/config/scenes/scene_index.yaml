@@ -1,0 +1,7 @@
+scenes:
+  1:
+    name: dual_piper_with_table_open_trapezoid_box_and_shelf
+    file: scene_001.yaml
+  2:
+    name: dual_piper_with_table_and_box
+    file: scene_002.yaml

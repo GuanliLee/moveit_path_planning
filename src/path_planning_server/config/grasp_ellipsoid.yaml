@@ -1,0 +1,7 @@
+path_planning_server:
+  ros__parameters:
+    grasp_ellipsoid.mesh_resource: package://path_planning_server/meshes/grasp_ellipsoid/unit_sphere.stl
+    grasp_ellipsoid.radius_x_m: 0.06
+    grasp_ellipsoid.radius_y_m: 0.0385
+    grasp_ellipsoid.radius_z_m: 0.0385
+    grasp_ellipsoid.center_z_m: 0.1358

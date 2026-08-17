@@ -1,0 +1,25 @@
+path_planning_server:
+  ros__parameters:
+    world_frame: world
+    left_planning_group: left_arm
+    right_planning_group: right_arm
+    left_end_effector_link: left_link6
+    right_end_effector_link: right_link6
+    default_scene_id: 1
+    # Keep failed requests responsive; the upper state machine no longer retries.
+    planning_time: 5.0
+    planning_attempts: 1
+    velocity_scaling: 0.50
+    acceleration_scaling: 0.50
+    position_tolerance: 0.005
+    orientation_tolerance: 0.05
+    gripper_move_duration: 1.0
+    # Final PLACE release only: open continuously over 3 seconds so the object
+    # is not disturbed by an abrupt full-width command.
+    gripper_release_duration: 3.0
+    gripper_effort: 5.0
+    gripper_contact_opening_threshold: 0.02
+    gripper_contact_goal_tolerance: 0.001
+    gripper_contact_goal_time_tolerance: 0.3
+    treat_gripper_contact_abort_as_success: true
+    scene_index_file: config/scenes/scene_index.yaml

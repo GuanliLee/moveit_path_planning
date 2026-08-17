@@ -145,15 +145,15 @@ grasp_bridge_state_machine:
     # mode. When both apply, the upright-axis mode below takes precedence and
     # the two rotations are never stacked.
     compensate_place_orientation_from_grasp_delta: true
-    # Only allowlisted cans with a side-grasp approach use upright correction.
-    # An approach axis within 45 degrees of the horizontal plane is treated as
-    # a side grasp. Top grasps and every non-can target keep the nominal place
-    # orientation. For an eligible can, record its world +Z axis when GRASP
-    # closes and rotate the complete gripper orientation at every place target.
+    # Every product is eligible for upright correction when its approach axis
+    # stays within 45 degrees of the horizontal plane. Top grasps keep the
+    # nominal place orientation. For an eligible side grasp, record the held
+    # object's world +Z axis when GRASP closes and rotate the complete gripper
+    # orientation at every place target. "*" selects current and future targets.
     place_upright_axis_compensation_enabled: true
     place_upright_axis_compensation_profiles: [grasp]
     place_upright_axis_compensation_arms: [right]
-    place_upright_axis_compensation_targets: ["Coca-Cola", "wanglaoji", "HK Orange Fanta"]
+    place_upright_axis_compensation_targets: ["*"]
     place_upright_side_grasp_max_vertical_deviation_deg: 45.0
     place_upright_tilt_limit_deg: 3.5
     grasp_ik_fallback_profiles: [grasp]

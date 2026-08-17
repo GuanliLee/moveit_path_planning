@@ -526,6 +526,15 @@ def _normalized_target_key(target_name: Any) -> str:
     return " ".join(str(target_name).split()).casefold()
 
 
+def _upright_target_is_selected(
+    target_name: Any,
+    selected_target_keys: Iterable[str],
+) -> bool:
+    """Return whether a target is selected explicitly or by the all-target wildcard."""
+    keys = frozenset(selected_target_keys)
+    return "*" in keys or _normalized_target_key(target_name) in keys
+
+
 def _grasp_approach_vertical_deviation_degrees(
     approach_axis_world: Iterable[float],
 ) -> float:
@@ -1803,8 +1812,10 @@ class GraspBridgeStateMachine(Node):
             and arm_name in self._place_upright_axis_compensation_arms
         )
         upright_place_target_allowlisted = (
-            _normalized_target_key(target_name)
-            in self._place_upright_axis_compensation_targets
+            _upright_target_is_selected(
+                target_name,
+                self._place_upright_axis_compensation_targets,
+            )
         )
         upright_place_requested = (
             upright_place_scope_enabled and upright_place_target_allowlisted

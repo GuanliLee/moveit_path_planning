@@ -28,6 +28,7 @@ from grasp_bridge_state_machine import (
     _pose_with_local_orientation_offset,
     _return_home_step,
     _rotation_aligning_vectors,
+    _upright_target_is_selected,
     _upright_object_axis_in_tcp,
     _validated_ik_fallback_degrees,
 )
@@ -448,16 +449,19 @@ def test_side_grasp_deviation_is_measured_from_the_horizontal_plane(
     ) == pytest.approx(expected_deviation_deg)
 
 
-def test_upright_can_allowlist_keys_are_exact_but_case_and_space_insensitive() -> None:
-    allowed = {
-        _normalized_target_key("Coca-Cola"),
-        _normalized_target_key("wanglaoji"),
-        _normalized_target_key("HK Orange Fanta"),
-    }
+def test_upright_target_wildcard_selects_all_current_and_future_products() -> None:
+    selected = {_normalized_target_key("*")}
 
-    assert _normalized_target_key("  HK   ORANGE fanta ") in allowed
-    assert _normalized_target_key("Aojiru") not in allowed
-    assert _normalized_target_key("Sprite") not in allowed
+    assert _upright_target_is_selected("AD Calcium Milk", selected)
+    assert _upright_target_is_selected("Aojiru", selected)
+    assert _upright_target_is_selected("Future Upright Product", selected)
+
+
+def test_explicit_upright_target_selection_remains_case_and_space_insensitive() -> None:
+    selected = {_normalized_target_key("HK Orange Fanta")}
+
+    assert _upright_target_is_selected("  HK   ORANGE fanta ", selected)
+    assert not _upright_target_is_selected("AD Calcium Milk", selected)
 
 
 def test_upright_place_compensation_is_enabled_for_right_grasp_flow() -> None:
@@ -474,11 +478,7 @@ def test_upright_place_compensation_is_enabled_for_right_grasp_flow() -> None:
     assert parameters["place_upright_axis_compensation_enabled"] is True
     assert parameters["place_upright_axis_compensation_profiles"] == ["grasp"]
     assert parameters["place_upright_axis_compensation_arms"] == ["right"]
-    assert parameters["place_upright_axis_compensation_targets"] == [
-        "Coca-Cola",
-        "wanglaoji",
-        "HK Orange Fanta",
-    ]
+    assert parameters["place_upright_axis_compensation_targets"] == ["*"]
     assert parameters[
         "place_upright_side_grasp_max_vertical_deviation_deg"
     ] == pytest.approx(45.0)

@@ -1,0 +1,203 @@
+{
+  "scene": "coarse shelf inventory from image",
+  "level_definition": {
+    "2": "top visible level",
+    "3": "middle visible level",
+    "4": "bottom visible level"
+  },
+  "items": [
+    {
+      "shelf": "left",
+      "level": 2,
+      "product_cn": "可口可乐",
+      "product_en": "Coca-Cola",
+      "count": 3,
+      "attributes": {
+        "dominant_color": "red",
+        "package": "can",
+        "shape": "short cylinder"
+      }
+    },
+    {
+      "shelf": "left",
+      "level": 2,
+      "product_cn": "娃哈哈AD钙奶",
+      "product_en": "AD Calcium Milk",
+      "count": 3,
+      "attributes": {
+        "dominant_color": "white/green",
+        "package": "bottle",
+        "shape": "slim bottle"
+      }
+    },
+    {
+      "shelf": "left",
+      "level": 3,
+      "product_cn": "光明益生菌风味发酵乳",
+      "product_en": "Guangming Probiotic Milk",
+      "count": 6,
+      "attributes": {
+        "dominant_color": "blue/white",
+        "package": "carton",
+        "shape": "rectangular carton"
+      }
+    },
+    {
+      "shelf": "left",
+      "level": 3,
+      "product_cn": "养乐多",
+      "product_en": "Yakult",
+      "count": 12,
+      "attributes": {
+        "dominant_color": "red/white",
+        "package": "small bottle",
+        "shape": "small cylinder"
+      }
+    },
+    {
+      "shelf": "left",
+      "level": 3,
+      "product_cn": "味全每日C橙汁",
+      "product_en": "Daily C Orange Juice",
+      "count": 4,
+      "attributes": {
+        "dominant_color": "orange",
+        "package": "bottle",
+        "shape": "tall rectangular bottle"
+      }
+    },
+    {
+      "shelf": "left",
+      "level": 4,
+      "product_cn": "伊藤园青汁",
+      "product_en": "Aojiru",
+      "count": 9,
+      "attributes": {
+        "dominant_color": "green/white",
+        "package": "bottle",
+        "shape": "medium plastic bottle"
+      }
+    },
+    {
+      "shelf": "left",
+      "level": 4,
+      "product_cn": "味全每日C葡萄汁",
+      "product_en": "Daily C Grape Juice",
+      "count": 6,
+      "attributes": {
+        "dominant_color": "gray/brown",
+        "package": "bottle",
+        "shape": "medium plastic bottle"
+      }
+    },
+    {
+      "shelf": "right",
+      "level": 2,
+      "product_cn": "可可优香椰子水",
+      "product_en": "Royal Coconut",
+      "count": 8,
+      "attributes": {
+        "dominant_color": "beige",
+        "package": "small bottle",
+        "shape": "short bottle"
+      }
+    },
+    {
+      "shelf": "right",
+      "level": 2,
+      "product_cn": "新希望芋泥牛乳",
+      "product_en": "Taro Milk",
+      "count": 6,
+      "attributes": {
+        "dominant_color": "gray/yellow",
+        "package": "carton",
+        "shape": "rectangular carton"
+      }
+    },
+    {
+      "shelf": "right",
+      "level": 2,
+      "product_cn": "港版芬达橙子味",
+      "product_en": "HK Orange Fanta",
+      "count": 6,
+      "attributes": {
+        "dominant_color": "orange",
+        "package": "can",
+        "shape": "short cylinder"
+      }
+    },
+    {
+      "shelf": "right",
+      "level": 3,
+      "product_cn": "罗伯克丝绒拿铁",
+      "product_en": "Robuk Velvet Latte",
+      "count": 4,
+      "attributes": {
+        "dominant_color": "black",
+        "package": "bottle",
+        "shape": "tall rectangular bottle"
+      }
+    },
+    {
+      "shelf": "right",
+      "level": 3,
+      "product_cn": "NeverCoffee生椰拿铁咖啡",
+      "product_en": "NEVER Coconut Latte",
+      "count": 6,
+      "attributes": {
+        "dominant_color": "black/yellow",
+        "package": "carton",
+        "shape": "tall rectangular carton"
+      }
+    },
+    {
+      "shelf": "right",
+      "level": 3,
+      "product_cn": "王老吉",
+      "product_en": "Wanglaoji",
+      "count": 6,
+      "attributes": {
+        "dominant_color": "red",
+        "package": "can",
+        "shape": "short cylinder"
+      }
+    },
+    {
+      "shelf": "right",
+      "level": 4,
+      "product_cn": "COSTA轻乳茶白桃乌龙味",
+      "product_en": "COSTA Peach Oolong",
+      "count": 5,
+      "attributes": {
+        "dominant_color": "white/purple",
+        "package": "bottle",
+        "shape": "medium plastic bottle"
+      }
+    },
+    {
+      "shelf": "right",
+      "level": 4,
+      "product_cn": "COSTA轻乳茶葡萄茉莉味",
+      "product_en": "COSTA Grape Jasmine",
+      "count": 6,
+      "attributes": {
+        "dominant_color": "green/black",
+        "package": "bottle",
+        "shape": "short rounded bottle"
+      }
+    },
+    {
+      "shelf": "right",
+      "level": 4,
+      "product_cn": "NeverCoffee轻乳拿铁咖啡",
+      "product_en": "NEVER Light Latte",
+      "count": 6,
+      "attributes": {
+        "dominant_color": "gray/red",
+        "package": "carton",
+        "shape": "rectangular carton"
+      }
+    }
+  ],
+  "note": "Product names are updated according to the uploaded Excel asset list. Counts remain coarse visual estimates from the provided shelf image."
+}

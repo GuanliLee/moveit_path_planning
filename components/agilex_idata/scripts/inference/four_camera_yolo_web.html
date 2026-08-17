@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>四路 YOLO 实时监控</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #081018;
+      --panel: #101b27;
+      --panel-strong: #142231;
+      --line: #24384a;
+      --text: #eef7ff;
+      --muted: #8fa8bd;
+      --cyan: #38d9c5;
+      --cyan-soft: rgba(56, 217, 197, .14);
+      --blue: #4f8cff;
+      --red: #ff667d;
+      --amber: #f8c35c;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .26);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 10% -10%, rgba(79, 140, 255, .18), transparent 32rem),
+        radial-gradient(circle at 90% 8%, rgba(56, 217, 197, .12), transparent 28rem),
+        var(--bg);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    button, input { font: inherit; }
+
+    button, input[type="checkbox"] { cursor: pointer; }
+
+    button:focus-visible,
+    input:focus-visible {
+      outline: 3px solid rgba(79, 140, 255, .5);
+      outline-offset: 2px;
+    }
+
+    .topbar {
+      position: sticky;
+      z-index: 10;
+      top: 0;
+      padding: 18px clamp(16px, 3vw, 36px);
+      border-bottom: 1px solid rgba(143, 168, 189, .16);
+      background: rgba(8, 16, 24, .9);
+      backdrop-filter: blur(18px);
+    }
+
+    .headline,
+    .headline-title,
+    .control-row,
+    .actions,
+    .health-group,
+    .camera-head,
+    .camera-controls,
+    .view-toggle,
+    .tag-list,
+    .count-list {
+      display: flex;
+      align-items: center;
+    }
+
+    .headline {
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .headline-title { gap: 12px; }
+
+    .logo {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border: 1px solid rgba(56, 217, 197, .34);
+      border-radius: 13px;
+      color: var(--cyan);
+      background: var(--cyan-soft);
+      font-weight: 800;
+      letter-spacing: -.06em;
+    }
+
+    h1, h2, p { margin: 0; }
+
+    h1 {
+      font-size: clamp(19px, 2vw, 25px);
+      letter-spacing: -.025em;
+    }
+
+    .subtitle,
+    .topic-name,
+    .help,
+    .camera-note,
+    .metric-label { color: var(--muted); }
+
+    .subtitle { margin-top: 3px; font-size: 13px; }
+
+    .health-group { gap: 9px; flex-wrap: wrap; justify-content: flex-end; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(16, 27, 39, .72);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .badge::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    .badge.online { color: var(--cyan); border-color: rgba(56, 217, 197, .34); }
+    .badge.offline { color: var(--red); border-color: rgba(255, 102, 125, .32); }
+    .badge.waiting { color: var(--amber); border-color: rgba(248, 195, 92, .32); }
+
+    .control-row {
+      align-items: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .target-control { flex: 1 1 500px; min-width: 250px; }
+    .interval-control { flex: 0 0 126px; }
+
+    .field-label {
+      display: block;
+      margin-bottom: 7px;
+      color: #c8dae8;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+
+    .number-input {
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(16, 27, 39, .9);
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    .number-input:focus-within {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(79, 140, 255, .12);
+    }
+
+    .target-picker { position: relative; }
+
+    .target-picker-toggle {
+      display: flex;
+      width: 100%;
+      min-height: 44px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--text);
+      background: rgba(16, 27, 39, .9);
+      text-align: left;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    .target-picker-toggle:hover,
+    .target-picker-toggle[aria-expanded="true"] {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(79, 140, 255, .12);
+    }
+
+    .target-picker-chevron {
+      color: var(--muted);
+      transition: transform .2s;
+    }
+
+    .target-picker-toggle[aria-expanded="true"] .target-picker-chevron {
+      transform: rotate(180deg);
+    }
+
+    .target-menu {
+      position: absolute;
+      z-index: 30;
+      top: calc(100% + 7px);
+      left: 0;
+      width: min(520px, calc(100vw - 32px));
+      padding: 10px;
+      border: 1px solid #33516a;
+      border-radius: 13px;
+      background: #0d1924;
+      box-shadow: 0 18px 45px rgba(0, 0, 0, .42);
+    }
+
+    .target-menu-toolbar { display: flex; gap: 8px; }
+
+    #target-search {
+      min-width: 0;
+      min-height: 38px;
+      padding: 7px 10px;
+      flex: 1;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      outline: 0;
+      color: var(--text);
+      background: rgba(8, 16, 24, .9);
+    }
+
+    #target-search:focus { border-color: var(--blue); }
+
+    .clear-targets {
+      min-height: 38px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      color: #c6d8e6;
+      background: var(--panel-strong);
+    }
+
+    .target-options {
+      max-height: 290px;
+      margin-top: 8px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .target-option {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 9px;
+      border-radius: 8px;
+      color: #d7e7f2;
+      cursor: pointer;
+    }
+
+    .target-option:hover { background: rgba(79, 140, 255, .12); }
+    .target-option input { width: 17px; height: 17px; accent-color: var(--cyan); }
+    .target-option span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .target-empty { margin: 12px 4px 3px; color: var(--muted); font-size: 12px; }
+
+    .tag-list { gap: 6px; min-height: 29px; margin-top: 8px; flex-wrap: wrap; }
+
+    .target-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 29px;
+      padding: 4px 5px 4px 10px;
+      border: 1px solid rgba(56, 217, 197, .28);
+      border-radius: 999px;
+      color: #cafff7;
+      background: var(--cyan-soft);
+      font-size: 12px;
+    }
+
+    .target-tag button {
+      display: grid;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      color: #cafff7;
+      background: transparent;
+    }
+
+    .target-tag button:hover { background: rgba(255, 255, 255, .12); }
+
+    .number-input { display: flex; align-items: center; padding: 0 10px; }
+
+    #interval-sec {
+      width: 78px;
+      height: 40px;
+      border: 0;
+      outline: 0;
+      color: var(--text);
+      background: transparent;
+      font-weight: 700;
+    }
+
+    .number-unit { color: var(--muted); font-size: 12px; }
+
+    .actions { gap: 8px; flex: 0 0 auto; }
+
+    .button {
+      min-height: 44px;
+      padding: 0 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--text);
+      background: var(--panel-strong);
+      font-weight: 750;
+      transition: transform .15s, border-color .15s, background .15s;
+    }
+
+    .button:hover:not(:disabled) { transform: translateY(-1px); border-color: #47637a; }
+    .button:disabled { cursor: wait; opacity: .55; }
+    .button.primary { border-color: transparent; color: #041513; background: var(--cyan); }
+    .button.primary:hover:not(:disabled) { background: #60e8d7; }
+
+    .assist-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px 16px;
+      margin-top: 9px;
+    }
+
+    .messages { min-height: 18px; text-align: right; font-size: 12px; }
+    .error { color: var(--red); }
+
+    .dashboard {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      padding: 18px clamp(16px, 3vw, 36px) 36px;
+    }
+
+    .camera-card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      background: linear-gradient(145deg, rgba(20, 34, 49, .96), rgba(12, 23, 33, .96));
+      box-shadow: var(--shadow);
+      transition: border-color .2s, opacity .2s;
+    }
+
+    .camera-card.stale { border-color: rgba(248, 195, 92, .55); }
+    .camera-card.disabled { opacity: .64; }
+
+    .camera-head,
+    .camera-controls { justify-content: space-between; gap: 12px; }
+
+    .camera-head { padding: 13px 15px; border-bottom: 1px solid rgba(143, 168, 189, .12); }
+
+    .camera-title h2 { font-size: 16px; }
+    .topic-name { margin-top: 3px; font-family: ui-monospace, monospace; font-size: 10px; }
+
+    .camera-frame {
+      position: relative;
+      display: grid;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      margin: 0;
+      overflow: hidden;
+      place-items: center;
+      background:
+        linear-gradient(rgba(56, 217, 197, .04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 217, 197, .04) 1px, transparent 1px),
+        #050a0f;
+      background-size: 36px 36px;
+    }
+
+    .camera-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #05090d;
+    }
+
+    [hidden] { display: none !important; }
+
+    .image-placeholder {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      padding: 20px;
+      place-items: center;
+      color: #7890a3;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .camera-body { padding: 12px 15px 14px; }
+
+    .camera-controls { margin-bottom: 12px; }
+
+    .enable-switch { display: inline-flex; align-items: center; gap: 8px; color: #bfd1df; font-size: 12px; }
+    .enable-switch input { width: 17px; height: 17px; accent-color: var(--cyan); }
+
+    .view-toggle {
+      gap: 2px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(8, 16, 24, .7);
+    }
+
+    .view-toggle button {
+      min-width: 57px;
+      padding: 5px 9px;
+      border: 0;
+      border-radius: 7px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .view-toggle button[aria-pressed="true"] { color: #061817; background: var(--cyan); }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+      margin: 0;
+    }
+
+    .metric {
+      min-width: 0;
+      padding: 8px 9px;
+      border: 1px solid rgba(143, 168, 189, .1);
+      border-radius: 9px;
+      background: rgba(8, 16, 24, .34);
+    }
+
+    .metric dt, .metric dd { margin: 0; }
+    .metric-label { display: block; margin-bottom: 3px; font-size: 10px; }
+    .metric-value { overflow: hidden; font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+
+    .count-list { gap: 6px; min-height: 28px; margin-top: 10px; flex-wrap: wrap; }
+
+    .count-chip {
+      padding: 4px 8px;
+      border-radius: 8px;
+      color: #b9d0df;
+      background: rgba(79, 140, 255, .12);
+      font-size: 10px;
+    }
+
+    .camera-note { min-height: 17px; margin-top: 8px; font-size: 11px; }
+    .camera-error { min-height: 17px; margin-top: 3px; font-size: 11px; }
+
+    @media (max-width: 900px) {
+      .topbar { position: static; }
+      .dashboard { grid-template-columns: 1fr; }
+      .headline { align-items: flex-start; }
+      .assist-row { grid-template-columns: 1fr; }
+      .messages { text-align: left; }
+    }
+
+    @media (max-width: 560px) {
+      .headline { flex-direction: column; }
+      .health-group { justify-content: flex-start; }
+      .interval-control { flex: 1 1 110px; }
+      .actions { width: 100%; }
+      .actions .button { flex: 1; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="headline">
+      <div class="headline-title">
+        <div class="logo" aria-hidden="true">Y4</div>
+        <div>
+          <h1>四路 YOLO 实时监控</h1>
+          <p class="subtitle">最新帧采样 · 四路并发 · Mask 分割叠加</p>
+        </div>
+      </div>
+      <div class="health-group">
+        <span id="yolo-health" class="badge waiting" role="status">等待 YOLO 服务</span>
+        <span id="round-status" class="badge waiting">尚未开始推理</span>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <div class="target-control">
+        <label class="field-label" for="target-picker-toggle">目标物体（可多选）</label>
+        <div id="target-picker" class="target-picker">
+          <button id="target-picker-toggle" class="target-picker-toggle" type="button"
+            aria-expanded="false" aria-controls="target-menu">
+            <span id="target-picker-summary">请选择物品</span>
+            <span class="target-picker-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div id="target-menu" class="target-menu" hidden>
+            <div class="target-menu-toolbar">
+              <input id="target-search" type="search" autocomplete="off" placeholder="搜索物品">
+              <button id="clear-targets" class="clear-targets" type="button">清空</button>
+            </div>
+            <div id="target-options" class="target-options" role="listbox"
+              aria-multiselectable="true" aria-label="可检测物品"></div>
+            <p id="target-empty" class="target-empty">正在加载可检测物品…</p>
+          </div>
+        </div>
+        <div id="target-tags" class="tag-list" aria-live="polite"></div>
+      </div>
+      <div class="interval-control">
+        <label class="field-label" for="interval-sec">全局请求周期</label>
+        <div class="number-input">
+          <input id="interval-sec" type="number" min="0.2" max="60" step="0.1" value="0.2">
+          <span class="number-unit">秒</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="apply-config" class="button primary" type="button">应用并开始</button>
+        <button id="pause-all" class="button" type="button">全部暂停</button>
+      </div>
+    </div>
+
+    <div class="assist-row">
+      <div class="help">类别来自当前已部署模型；更改选择后点击“应用并开始”。</div>
+      <div class="messages" aria-live="polite">
+        <span id="global-error" class="error" role="status"></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard">
+    <section class="camera-card" data-camera="left" data-view="mask">
+      <header class="camera-head">
+        <div class="camera-title"><h2>左视角 <small>left</small></h2><p class="topic-name">/camera_l/color/image_raw/compressed</p></div>
+        <span id="left-topic" class="badge waiting">等待相机</span>
+      </header>
+      <figure class="camera-frame">
+        <img id="left-image" alt="左视角 YOLO Mask 叠加图" hidden>
+        <div id="left-placeholder" class="image-placeholder">等待左视角图像</div>
+      </figure>
+      <div class="camera-body">
+        <div class="camera-controls">
+          <label class="enable-switch"><input id="left-enabled" type="checkbox" checked>启用该路</label>
+          <div class="view-toggle" role="group" aria-label="左视角显示模式">
+            <button id="left-mask-view" type="button" aria-pressed="true">Mask</button>
+            <button id="left-source-view" type="button" aria-pressed="false">原图</button>
+          </div>
+        </div>
+        <dl id="left-metrics" class="metrics"></dl>
+        <div id="left-counts" class="count-list"></div>
+        <p id="left-note" class="camera-note">等待目标配置</p>
+        <p id="left-error" class="camera-error error" role="status"></p>
+      </div>
+    </section>
+
+    <section class="camera-card" data-camera="front" data-view="mask">
+      <header class="camera-head">
+        <div class="camera-title"><h2>前视角 <small>front</small></h2><p class="topic-name">/camera_f/color/image_raw/compressed</p></div>
+        <span id="front-topic" class="badge waiting">等待相机</span>
+      </header>
+      <figure class="camera-frame">
+        <img id="front-image" alt="前视角 YOLO Mask 叠加图" hidden>
+        <div id="front-placeholder" class="image-placeholder">等待前视角图像</div>
+      </figure>
+      <div class="camera-body">
+        <div class="camera-controls">
+          <label class="enable-switch"><input id="front-enabled" type="checkbox" checked>启用该路</label>
+          <div class="view-toggle" role="group" aria-label="前视角显示模式">
+            <button id="front-mask-view" type="button" aria-pressed="true">Mask</button>
+            <button id="front-source-view" type="button" aria-pressed="false">原图</button>
+          </div>
+        </div>
+        <dl id="front-metrics" class="metrics"></dl>
+        <div id="front-counts" class="count-list"></div>
+        <p id="front-note" class="camera-note">等待目标配置</p>
+        <p id="front-error" class="camera-error error" role="status"></p>
+      </div>
+    </section>
+
+    <section class="camera-card" data-camera="right" data-view="mask">
+      <header class="camera-head">
+        <div class="camera-title"><h2>右视角 <small>right</small></h2><p class="topic-name">/camera_r/color/image_raw/compressed</p></div>
+        <span id="right-topic" class="badge waiting">等待相机</span>
+      </header>
+      <figure class="camera-frame">
+        <img id="right-image" alt="右视角 YOLO Mask 叠加图" hidden>
+        <div id="right-placeholder" class="image-placeholder">等待右视角图像</div>
+      </figure>
+      <div class="camera-body">
+        <div class="camera-controls">
+          <label class="enable-switch"><input id="right-enabled" type="checkbox" checked>启用该路</label>
+          <div class="view-toggle" role="group" aria-label="右视角显示模式">
+            <button id="right-mask-view" type="button" aria-pressed="true">Mask</button>
+            <button id="right-source-view" type="button" aria-pressed="false">原图</button>
+          </div>
+        </div>
+        <dl id="right-metrics" class="metrics"></dl>
+        <div id="right-counts" class="count-list"></div>
+        <p id="right-note" class="camera-note">等待目标配置</p>
+        <p id="right-error" class="camera-error error" role="status"></p>
+      </div>
+    </section>
+
+    <section class="camera-card" data-camera="head" data-view="mask">
+      <header class="camera-head">
+        <div class="camera-title"><h2>头部视角 <small>head</small></h2><p class="topic-name">/camera_h/color/image_raw/compressed</p></div>
+        <span id="head-topic" class="badge waiting">等待相机</span>
+      </header>
+      <figure class="camera-frame">
+        <img id="head-image" alt="头部视角 YOLO Mask 叠加图" hidden>
+        <div id="head-placeholder" class="image-placeholder">等待头部视角图像</div>
+      </figure>
+      <div class="camera-body">
+        <div class="camera-controls">
+          <label class="enable-switch"><input id="head-enabled" type="checkbox" checked>启用该路</label>
+          <div class="view-toggle" role="group" aria-label="头部视角显示模式">
+            <button id="head-mask-view" type="button" aria-pressed="true">Mask</button>
+            <button id="head-source-view" type="button" aria-pressed="false">原图</button>
+          </div>
+        </div>
+        <dl id="head-metrics" class="metrics"></dl>
+        <div id="head-counts" class="count-list"></div>
+        <p id="head-note" class="camera-note">等待目标配置</p>
+        <p id="head-error" class="camera-error error" role="status"></p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+
+    const cameraKeys = ["left", "front", "right", "head"];
+    const selectedTargets = [];
+    const cameraViews = Object.fromEntries(cameraKeys.map(key => [key, "mask"]));
+    const seenImages = Object.fromEntries(cameraKeys.map(key => [key, ""]));
+    let deployedClasses = [];
+    let lastStatus = null;
+    let draftDirty = false;
+    let statusInFlight = false;
+    let actionInFlight = false;
+
+    const byId = id => document.getElementById(id);
+
+    function uniqueTargets(values) {
+      return [...new Set(values.map(value => String(value).trim()).filter(Boolean))];
+    }
+
+    function setGlobalError(message) {
+      byId("global-error").textContent = message || "";
+    }
+
+    function setTargetMenuOpen(open) {
+      byId("target-menu").hidden = !open;
+      byId("target-picker-toggle").setAttribute("aria-expanded", String(open));
+      if (open) {
+        renderTargetOptions();
+        byId("target-search").focus();
+      }
+    }
+
+    function renderTargetSummary() {
+      byId("target-picker-summary").textContent = selectedTargets.length
+        ? `已选择 ${selectedTargets.length} 项`
+        : "请选择物品";
+    }
+
+    function renderTargetTags() {
+      const host = byId("target-tags");
+      host.replaceChildren(...selectedTargets.map(name => {
+        const tag = document.createElement("span");
+        tag.className = "target-tag";
+        tag.append(document.createTextNode(name));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "×";
+        remove.setAttribute("aria-label", `删除目标 ${name}`);
+        remove.addEventListener("click", () => toggleTarget(name, false));
+        tag.append(remove);
+        return tag;
+      }));
+    }
+
+    function renderTargetOptions() {
+      const query = byId("target-search").value.trim().toLocaleLowerCase();
+      const matches = deployedClasses.filter(item =>
+        !query || item.name.toLocaleLowerCase().includes(query)
+      );
+      const options = matches.map(item => {
+        const label = document.createElement("label");
+        label.className = "target-option";
+        label.setAttribute("role", "option");
+        const checked = selectedTargets.includes(item.name);
+        label.setAttribute("aria-selected", String(checked));
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = checked;
+        input.addEventListener("change", () => toggleTarget(item.name, input.checked));
+        const text = document.createElement("span");
+        text.textContent = item.name;
+        label.append(input, text);
+        return label;
+      });
+      byId("target-options").replaceChildren(...options);
+      const empty = byId("target-empty");
+      empty.textContent = deployedClasses.length
+        ? "没有匹配的已部署物品"
+        : "YOLO 服务尚未返回可检测物品";
+      empty.hidden = matches.length > 0;
+    }
+
+    function renderTargetSelection() {
+      renderTargetSummary();
+      renderTargetTags();
+      renderTargetOptions();
+    }
+
+    function toggleTarget(name, checked) {
+      const index = selectedTargets.indexOf(name);
+      if (checked && index < 0) selectedTargets.push(name);
+      if (!checked && index >= 0) selectedTargets.splice(index, 1);
+      draftDirty = true;
+      renderTargetSelection();
+    }
+
+    async function loadClasses() {
+      const response = await fetch("/api/classes", {cache: "no-store"});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      deployedClasses = Array.isArray(payload.classes)
+        ? payload.classes.filter(item => item && typeof item.name === "string" && item.name)
+        : [];
+      renderTargetSelection();
+    }
+
+    function metric(label, value) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "metric";
+      const dt = document.createElement("dt");
+      dt.className = "metric-label";
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.className = "metric-value";
+      dd.textContent = value;
+      wrapper.append(dt, dd);
+      return wrapper;
+    }
+
+    function formatNumber(value, digits = 1) {
+      return typeof value === "number" ? value.toFixed(digits) : "—";
+    }
+
+    function formatSourceTime(seconds) {
+      if (typeof seconds !== "number" || seconds <= 0) return "—";
+      return new Date(seconds * 1000).toLocaleTimeString("zh-CN", {
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    }
+
+    function setImage(key, url, token, pendingText) {
+      if (seenImages[key] === token) return;
+      seenImages[key] = token;
+      const image = byId(`${key}-image`);
+      const placeholder = byId(`${key}-placeholder`);
+      placeholder.textContent = pendingText;
+      placeholder.hidden = false;
+      image.onload = () => {
+        if (seenImages[key] !== token) return;
+        image.hidden = false;
+        placeholder.hidden = true;
+      };
+      image.onerror = () => {
+        if (seenImages[key] !== token) return;
+        image.hidden = true;
+        placeholder.hidden = false;
+        placeholder.textContent = "图像加载失败，等待下次刷新";
+      };
+      image.src = url;
+    }
+
+    function clearImage(key, message) {
+      const token = `empty:${message}`;
+      if (seenImages[key] === token) return;
+      seenImages[key] = token;
+      const image = byId(`${key}-image`);
+      image.removeAttribute("src");
+      image.hidden = true;
+      const placeholder = byId(`${key}-placeholder`);
+      placeholder.textContent = message;
+      placeholder.hidden = false;
+    }
+
+    function updateCameraImage(key, camera) {
+      if (camera.result_sequence > 0) {
+        const view = cameraViews[key];
+        const url = view === "source"
+          ? `/api/cameras/${key}/source.jpg?seq=${camera.result_sequence}`
+          : `/api/cameras/${key}/overlay.jpg?seq=${camera.result_sequence}`;
+        setImage(key, url, `result:${camera.result_sequence}:${view}`, "正在载入推理结果");
+        return;
+      }
+      if (camera.input_sequence > 0) {
+        const url = `/api/cameras/${key}/latest.jpg?seq=${camera.input_sequence}`;
+        setImage(key, url, `latest:${camera.input_sequence}`, "正在载入相机画面");
+        return;
+      }
+      clearImage(key, "等待相机图像");
+    }
+
+    function renderCounts(key, classCounts) {
+      const entries = Object.entries(classCounts || {});
+      const host = byId(`${key}-counts`);
+      host.replaceChildren(...entries.map(([name, count]) => {
+        const chip = document.createElement("span");
+        chip.className = "count-chip";
+        chip.textContent = `${name} · ${count}`;
+        return chip;
+      }));
+    }
+
+    function renderCamera(key, camera, status) {
+      const topic = byId(`${key}-topic`);
+      if (camera.topic_online) {
+        topic.textContent = "相机在线";
+        topic.className = "badge online";
+      } else if (camera.input_sequence > 0) {
+        topic.textContent = "相机超时";
+        topic.className = "badge offline";
+      } else {
+        topic.textContent = "等待相机";
+        topic.className = "badge waiting";
+      }
+
+      const card = document.querySelector(`[data-camera="${key}"]`);
+      card.classList.toggle("stale", Boolean(camera.result_stale && camera.result_sequence));
+      card.classList.toggle("disabled", !camera.enabled);
+      const metrics = [
+        ["检测数量", String(camera.count || 0)],
+        ["服务耗时", `${formatNumber(camera.service_latency_ms)} ms`],
+        ["往返耗时", `${formatNumber(camera.round_trip_ms)} ms`],
+        ["结果年龄", camera.result_age_sec == null ? "—" : `${formatNumber(camera.result_age_sec)} s`],
+        ["结果速率", `${formatNumber(camera.effective_rate_hz, 2)} Hz`],
+        ["全局周期", `${formatNumber(status.interval_sec)} s`],
+        ["源帧时间", formatSourceTime(camera.source_stamp_sec)],
+      ];
+      byId(`${key}-metrics`).replaceChildren(
+        ...metrics.map(([label, value]) => metric(label, value))
+      );
+      renderCounts(key, camera.class_counts);
+      byId(`${key}-error`).textContent = camera.error
+        ? `${camera.error}${camera.error_age_sec == null ? "" : ` · ${formatNumber(camera.error_age_sec)} 秒前`}`
+        : "";
+
+      let note = "";
+      if (!camera.enabled) note = "该视角已停用";
+      else if (!status.targets.length) note = "请添加目标并应用配置";
+      else if (status.paused) note = "推理已暂停，相机订阅仍在运行";
+      else if (!camera.input_sequence) note = "等待 ROS 图像消息";
+      else if (!camera.result_sequence) note = "等待本轮 Mask 结果，当前显示原图";
+      else if (camera.result_stale) note = "上次成功结果已过期，等待服务恢复";
+      else note = cameraViews[key] === "mask" ? "显示 Mask 叠加图" : "显示本次推理原图";
+      byId(`${key}-note`).textContent = note;
+      updateCameraImage(key, camera);
+    }
+
+    function syncDraftFromStatus(status) {
+      selectedTargets.splice(0, selectedTargets.length, ...uniqueTargets(status.targets || []));
+      byId("interval-sec").value = status.interval_sec;
+      for (const key of cameraKeys) {
+        byId(`${key}-enabled`).checked = Boolean(status.cameras[key].enabled);
+      }
+      renderTargetSelection();
+    }
+
+    function renderGlobal(status) {
+      const health = byId("yolo-health");
+      const checkAge = status.yolo.check_age_sec == null
+        ? ""
+        : ` · ${formatNumber(status.yolo.check_age_sec)} 秒前检查`;
+      health.textContent = status.yolo.ok
+        ? `YOLO 服务在线${checkAge}`
+        : `YOLO 离线：${status.yolo.error || "等待健康检查"}${checkAge}`;
+      health.className = `badge ${status.yolo.ok ? "online" : "offline"}`;
+
+      const round = byId("round-status");
+      if (status.paused) {
+        round.textContent = "推理已暂停";
+        round.className = "badge waiting";
+      } else if (!status.targets.length) {
+        round.textContent = "等待目标配置";
+        round.className = "badge waiting";
+      } else {
+        round.textContent = `每 ${formatNumber(status.interval_sec)} 秒并发一轮`;
+        round.className = "badge online";
+      }
+      if (!draftDirty && !actionInFlight) syncDraftFromStatus(status);
+      if (status.config_error) setGlobalError(status.config_error);
+    }
+
+    async function refreshStatus() {
+      if (statusInFlight) return;
+      statusInFlight = true;
+      try {
+        const response = await fetch("/api/status", {cache: "no-store"});
+        const status = await response.json();
+        if (!response.ok) throw new Error(status.error || `HTTP ${response.status}`);
+        lastStatus = status;
+        renderGlobal(status);
+        for (const key of cameraKeys) renderCamera(key, status.cameras[key], status);
+      } catch (error) {
+        setGlobalError(`状态刷新失败：${error.message}`);
+      } finally {
+        statusInFlight = false;
+      }
+    }
+
+    function setButtonsDisabled(disabled) {
+      byId("apply-config").disabled = disabled;
+      byId("pause-all").disabled = disabled;
+    }
+
+    async function postConfig(paused) {
+      const interval = Number(byId("interval-sec").value);
+      if (!Number.isFinite(interval) || interval < 0.2 || interval > 60) {
+        throw new Error("请求周期必须在 0.2–60 秒之间");
+      }
+      if (!paused && !selectedTargets.length) {
+        throw new Error("请至少添加一个目标物体");
+      }
+      const cameras = Object.fromEntries(cameraKeys.map(key => [
+        key,
+        {enabled: byId(`${key}-enabled`).checked},
+      ]));
+      const response = await fetch("/api/config", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          targets: selectedTargets,
+          interval_sec: interval,
+          paused,
+          cameras,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      return payload;
+    }
+
+    async function runAction(paused) {
+      if (actionInFlight) return;
+      actionInFlight = true;
+      setButtonsDisabled(true);
+      setGlobalError("");
+      try {
+        await postConfig(paused);
+        draftDirty = false;
+        await refreshStatus();
+      } catch (error) {
+        setGlobalError(error.message);
+      } finally {
+        actionInFlight = false;
+        setButtonsDisabled(false);
+      }
+    }
+
+    function setView(key, view) {
+      cameraViews[key] = view;
+      document.querySelector(`[data-camera="${key}"]`).dataset.view = view;
+      byId(`${key}-mask-view`).setAttribute("aria-pressed", String(view === "mask"));
+      byId(`${key}-source-view`).setAttribute("aria-pressed", String(view === "source"));
+      seenImages[key] = "";
+      if (lastStatus) {
+        renderCamera(key, lastStatus.cameras[key], lastStatus);
+      }
+    }
+
+    byId("target-picker-toggle").addEventListener("click", () => {
+      setTargetMenuOpen(byId("target-menu").hidden);
+    });
+    byId("target-search").addEventListener("input", renderTargetOptions);
+    byId("clear-targets").addEventListener("click", () => {
+      selectedTargets.splice(0, selectedTargets.length);
+      draftDirty = true;
+      renderTargetSelection();
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") setTargetMenuOpen(false);
+    });
+    document.addEventListener("click", event => {
+      if (!byId("target-picker").contains(event.target)) setTargetMenuOpen(false);
+    });
+    byId("interval-sec").addEventListener("input", () => { draftDirty = true; });
+    byId("apply-config").addEventListener("click", () => runAction(false));
+    byId("pause-all").addEventListener("click", () => runAction(true));
+
+    for (const key of cameraKeys) {
+      byId(`${key}-enabled`).addEventListener("change", () => { draftDirty = true; });
+      byId(`${key}-mask-view`).addEventListener("click", () => setView(key, "mask"));
+      byId(`${key}-source-view`).addEventListener("click", () => setView(key, "source"));
+    }
+
+    loadClasses().catch(error => setGlobalError(`类别加载失败：${error.message}`));
+    refreshStatus();
+    setInterval(refreshStatus, 200);
+  </script>
+</body>
+</html>

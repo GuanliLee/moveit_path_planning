@@ -1,0 +1,9 @@
+string target_name
+string arm_name
+string camera_frame
+uint32 scene_id
+geometry_msgs/PoseStamped place_tcp_pose
+float64 gripper_width_m
+---
+bool success
+string message

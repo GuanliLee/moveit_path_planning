@@ -1,0 +1,10 @@
+h5py
+lerobot[dataset]==0.6.1
+numpy
+opencv-python
+pandas
+pyarrow
+PyYAML
+scipy
+tqdm
+transforms3d

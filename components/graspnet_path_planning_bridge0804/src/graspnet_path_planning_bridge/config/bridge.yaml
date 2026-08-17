@@ -1,0 +1,25 @@
+graspnet_path_planning_bridge:
+  ros__parameters:
+    plan_service: /plan_to_pose
+    default_scene_id: 1
+    world_frame: world
+    detection_topic: /grasp_bridge/detection_result
+
+    plan_timeout_s: 60.0
+    tf_timeout_s: 1.0
+
+    left_link6_frame: left_link6
+    right_link6_frame: right_link6
+    left_camera_frame: cam_left_color_optical_frame
+    right_camera_frame: cam_right_color_optical_frame
+
+    left_handeye_file: /home/ligl/path_planning_service0807/calibration/extrinsics/cam_left_handeye.json
+    right_handeye_file: /home/ligl/path_planning_service0807/calibration/extrinsics/cam_right_handeye.json
+    # Hand-eye JSON parent /<arm>/gripper_end_pos: link6 local +Z 59.3 mm.
+    link6_to_handeye_parent_m: 0.0593
+
+    # Local MoveIt planning TCP; intentionally separate from hand-eye parent.
+    left_link6_to_tcp_xyz: [0.0, 0.0, 0.1358]
+    left_link6_to_tcp_xyzw: [0.0, 0.0, 0.0, 1.0]
+    right_link6_to_tcp_xyz: [0.0, 0.0, 0.1358]
+    right_link6_to_tcp_xyzw: [0.0, 0.0, 0.0, 1.0]

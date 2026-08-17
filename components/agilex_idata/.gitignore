@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+!.env.example
+*.local
+
+# ROS 2 / colcon
+build/
+install/
+log/
+.colcon/
+COLCON_IGNORE
+
+# Runtime logs
+*.log
+Log/
+logs/
+runs/
+outputs/
+wandb/
+tensorboard/
+crash_dumps/
+
+# Dataset and replay artifacts
+data/
+episode*/
+aloha/
+lerobot/
+*.mcap
+*.bag
+*.db3
+*.hdf5
+*.h5
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.zip
+*.tar
+*.tar.gz
+
+# Model/checkpoint artifacts
+checkpoint/
+checkpoints/
+ckpt/
+policy_records/
+policy_records_*/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.engine
+*.plan
+
+# Editor / OS
+.worktrees/
+.superpowers/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

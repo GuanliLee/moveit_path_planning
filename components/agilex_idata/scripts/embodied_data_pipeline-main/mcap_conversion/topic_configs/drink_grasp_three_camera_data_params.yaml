@@ -1,0 +1,33 @@
+/**:
+  ros__parameters:
+    dataInfo:
+
+      # drink_grasp_web records three RealSense color streams directly under
+      # /cam_left, /cam_right, and /cam_high.  The output names below match the
+      # three_camera_global layout consumed by mcap_to_icra_episode.py.
+      camera:
+        color:
+          checkFrameRate: 25
+          names: ['left', 'right', 'head']
+          parentFrames: ['cam_left_color_optical_frame', 'cam_right_color_optical_frame', 'cam_high_color_optical_frame']
+          topics: ['/cam_left/color/image_raw', '/cam_right/color/image_raw', '/cam_high/color/image_raw']
+          configTopics: ['/cam_left/color/camera_info', '/cam_right/color/camera_info', '/cam_high/color/camera_info']
+
+      # Existing recordings contain two synchronized measured-joint streams.
+      # Use /joint_left|right as the action/master stream and
+      # /joint_states_left|right as the state/puppet stream.  This is robust for
+      # both left- and right-hand tasks, whereas /joint_ctrl_cmd_* is absent for
+      # the idle arm in single-arm episodes.
+      arm:
+        jointState:
+          checkFrameRate: 150
+          names: ['masterLeft', 'masterRight', 'puppetLeft', 'puppetRight']
+          topics: ['/joint_left', '/joint_right', '/joint_states_left', '/joint_states_right']
+
+      # Use stamped poses because the converter synchronizes pose data from the
+      # ROS message header timestamp.
+      localization:
+        pose:
+          checkFrameRate: 150
+          names: ['puppetLeft', 'puppetRight']
+          topics: ['/end_pose_stamped_left', '/end_pose_stamped_right']

@@ -5,9 +5,33 @@ log/
 
 # Runtime captures and diagnostics
 debug/
+recordings/
+data/
+logs/
+runs/
+outputs/
 *.bag
 *.db3
 *.mcap
+*.hdf5
+*.h5
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.log
+*.pid
+
+# Local model weights and checkpoints
+models/
+checkpoint/
+checkpoints/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.engine
 
 # Python caches and test output
 __pycache__/
@@ -28,3 +52,7 @@ htmlcov/
 .venv/
 venv/
 env/
+.local/
+.env
+.env.*
+!.env.example

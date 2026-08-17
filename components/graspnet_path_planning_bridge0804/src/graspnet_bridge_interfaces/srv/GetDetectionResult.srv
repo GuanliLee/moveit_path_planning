@@ -1,0 +1,5 @@
+string target_name
+---
+bool success
+string message
+graspnet_bridge_interfaces/DetectionResult result

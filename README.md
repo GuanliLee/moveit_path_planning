@@ -14,6 +14,21 @@ MoveIt 2 路径规划与真机轨迹执行能力。客户端只需要调用
   BOX 障碍物。
 - 当前不提供动态障碍物、Gazebo 或 MuJoCo 仿真。
 
+## 完整系统代码快照
+
+本仓库同时保存当前 8090 饮料抓取链路和采集数据质检代码：
+
+```text
+src/path_planning_server/scripts/grasp_bridge_state_machine.py  # 抓取状态机
+components/drink_grasp_web/                                     # 8090 Web
+components/graspnet_path_planning_bridge0804/                   # 抓取到规划服务桥
+components/realsense_three_cameras/                             # 三相机启动与标定工具
+components/agilex_idata/                                       # 采集、转换、质检与回放
+```
+
+仓库只保存代码、配置、测试、文档和必要模型网格。MCAP/HDF5/视频、
+`recordings/`、Python 虚拟环境、ROS 2 的 `build/install/log` 以及运行日志均不提交。
+
 ## 最简单的虚拟运行示例
 
 第一次使用前先完成后文的“环境初始化”。已经构建过工作空间时，在终端 1

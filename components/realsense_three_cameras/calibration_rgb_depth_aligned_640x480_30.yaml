@@ -1,0 +1,33 @@
+# Calibration profile for three D435i cameras.
+# Keeps both RGB and depth at 640x480, but runs RGB and depth at 30 FPS.
+# aligned_depth_to_color/image_raw is required by the existing calibration capture script.
+enable_color: true
+rgb_camera.color_profile: "640,480,30"
+rgb_camera.color_format: "RGB8"
+rgb_camera.enable_auto_exposure: true
+
+enable_depth: true
+depth_module.depth_profile: "640,480,30"
+depth_module.depth_format: "Z16"
+depth_module.enable_auto_exposure: true
+
+enable_infra: false
+enable_infra1: false
+enable_infra2: false
+
+enable_gyro: false
+enable_accel: false
+enable_motion: false
+unite_imu_method: 0
+
+pointcloud.enable: false
+align_depth.enable: true
+enable_rgbd: false
+enable_sync: true
+
+publish_tf: true
+tf_publish_rate: 0.0
+diagnostics_period: 1.0
+initial_reset: false
+wait_for_device_timeout: -1.0
+reconnect_timeout: 6.0

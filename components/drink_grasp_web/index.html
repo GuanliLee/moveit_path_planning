@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>饮料抓取任务</title>
+  <link rel="stylesheet" href="/static/app.css?v=20260812-playback">
+  <link rel="stylesheet" href="/static/playback.css?v=20260812-playback">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>饮料抓取任务</h1>
+      <p>任务操作与采集数据回放。</p>
+    </div>
+    <div class="topbar-actions">
+      <nav class="page-tabs" aria-label="页面">
+        <button type="button" class="active" data-page-tab="operation">任务操作</button>
+        <button type="button" data-page-tab="playback">数据回放</button>
+      </nav>
+      <div class="status-chip" id="rosStatus">ROS 检查中</div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="camera-section operation-only" aria-labelledby="cameraSectionTitle">
+      <div class="section-head camera-section-head">
+        <h2 id="cameraSectionTitle">实时相机</h2>
+        <div class="camera-head-actions">
+          <span id="cameraBridgeStatus" class="camera-bridge-status" aria-live="polite">正在连接三路画面</span>
+          <button id="refreshCamerasBtn" type="button">重新连接</button>
+        </div>
+      </div>
+
+      <div class="camera-grid" id="cameraGrid">
+        <article class="camera-card is-waiting" data-camera-id="cam_high">
+          <div class="camera-card-head">
+            <div class="camera-title">
+              <strong>顶部相机</strong>
+              <span data-camera-source>cam_high</span>
+            </div>
+            <span class="camera-live-state waiting" data-camera-state>连接中</span>
+          </div>
+          <div class="camera-viewport">
+            <img data-camera-image alt="顶部相机实时画面" decoding="async" draggable="false">
+            <div class="camera-placeholder" data-camera-placeholder>正在连接实时画面</div>
+          </div>
+          <div class="camera-meta">
+            <span data-camera-fps>源 FPS: -</span>
+            <span data-camera-age>帧龄: -</span>
+            <span data-camera-seq>Seq: -</span>
+          </div>
+        </article>
+
+        <article class="camera-card is-waiting" data-camera-id="cam_left">
+          <div class="camera-card-head">
+            <div class="camera-title">
+              <strong>左腕相机</strong>
+              <span data-camera-source>cam_left</span>
+            </div>
+            <span class="camera-live-state waiting" data-camera-state>连接中</span>
+          </div>
+          <div class="camera-viewport">
+            <img data-camera-image alt="左腕相机实时画面" decoding="async" draggable="false">
+            <div class="camera-placeholder" data-camera-placeholder>正在连接实时画面</div>
+          </div>
+          <div class="camera-meta">
+            <span data-camera-fps>源 FPS: -</span>
+            <span data-camera-age>帧龄: -</span>
+            <span data-camera-seq>Seq: -</span>
+          </div>
+        </article>
+
+        <article class="camera-card is-waiting" data-camera-id="cam_right">
+          <div class="camera-card-head">
+            <div class="camera-title">
+              <strong>右腕相机</strong>
+              <span data-camera-source>cam_right</span>
+            </div>
+            <span class="camera-live-state waiting" data-camera-state>连接中</span>
+          </div>
+          <div class="camera-viewport">
+            <img data-camera-image alt="右腕相机实时画面" decoding="async" draggable="false">
+            <div class="camera-placeholder" data-camera-placeholder>正在连接实时画面</div>
+          </div>
+          <div class="camera-meta">
+            <span data-camera-fps>源 FPS: -</span>
+            <span data-camera-age>帧龄: -</span>
+            <span data-camera-seq>Seq: -</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="drink-section operation-only">
+      <div class="section-head">
+        <h2>饮料</h2>
+        <span id="promptPreview">发给 121: -</span>
+      </div>
+      <div class="drink-grid" id="drinkGrid"></div>
+    </section>
+
+    <section class="control-section operation-only">
+      <div class="control-band">
+        <div class="field">
+          <label>任务模式</label>
+          <div class="mode-switch" id="taskModeSwitch">
+            <button class="active" type="button" data-task-mode="restock">上架</button>
+            <button type="button" data-task-mode="pick">拣货</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="armSelect">机械臂</label>
+          <select id="armSelect">
+            <option value="right">右臂</option>
+            <option value="left">左臂</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sceneInput">Scene ID</label>
+          <input id="sceneInput" type="number" min="1" max="999" value="1">
+        </div>
+        <div class="field">
+          <label for="gripperInput">打开宽度 m</label>
+          <input id="gripperInput" type="number" min="0" max="0.1" step="0.005" value="0.08">
+        </div>
+      </div>
+
+      <div class="shelf-head">
+        <h2 id="placeSectionTitle">货架位置</h2>
+        <span id="slotStatus">未配置位姿时使用状态机默认放置点</span>
+      </div>
+      <div class="shelf-grid" id="shelfGrid"></div>
+
+      <div class="action-row">
+        <button id="executeBtn" class="primary" type="button">执行上架</button>
+        <button id="stopExecuteBtn" class="danger" type="button" disabled>停止当前执行</button>
+        <button id="refreshBtn" type="button">刷新状态</button>
+      </div>
+
+      <div class="record-panel">
+        <div class="record-head">
+          <h2>数据采集</h2>
+          <span id="recordStatusText">未录制</span>
+        </div>
+        <div class="record-actions">
+          <button id="recordStartBtn" class="primary" type="button">开始录制</button>
+          <button id="recordStopBtn" type="button">停止录制</button>
+          <button id="recordSaveBtn" type="button">保存</button>
+          <button id="recordDiscardBtn" class="danger" type="button">丢弃</button>
+        </div>
+        <div class="record-detail" id="recordDetail">录制将保存为本机 MCAP rosbag。</div>
+      </div>
+    </section>
+
+    <section class="run-section operation-only">
+      <div class="section-head">
+        <h2>执行状态</h2>
+        <span id="runSummary">等待任务</span>
+      </div>
+      <pre id="statusOutput">-</pre>
+    </section>
+    <section id="playbackPage" class="playback-page hidden" aria-labelledby="playbackTitle">
+      <div class="playback-heading">
+        <div>
+          <h2 id="playbackTitle">Episode 数据回放</h2>
+          <p>同步查看三路相机、末端位姿与关节轨迹；此页面不会驱动机械臂。</p>
+        </div>
+        <span id="playbackLoadStatus" class="playback-status">等待选择数据</span>
+      </div>
+
+      <div class="playback-layout">
+        <aside class="episode-browser">
+          <div class="episode-browser-head">
+            <div>
+              <strong>录制数据</strong>
+              <span id="episodeCatalogSummary">正在读取...</span>
+            </div>
+            <button id="refreshPlaybackBtn" type="button">刷新</button>
+          </div>
+          <label class="episode-search">
+            <span>搜索 episode</span>
+            <input id="playbackSearchInput" type="search" placeholder="任务、饮料、编号或备注">
+          </label>
+          <div id="episodeCatalogList" class="episode-list" aria-live="polite"></div>
+        </aside>
+
+        <div class="playback-stage">
+          <div id="playbackEmpty" class="playback-empty">
+            <strong>选择左侧 Episode 开始回放</strong>
+            <span>首次打开某条数据时，服务端会从 MCAP 解码视频帧和轨迹。</span>
+          </div>
+
+          <div id="playbackViewer" class="playback-viewer hidden">
+            <div class="playback-summary">
+              <div>
+                <span>当前数据</span>
+                <strong id="playbackEpisodeName">-</strong>
+                <small id="playbackEpisodeNote">-</small>
+              </div>
+              <div class="playback-metrics">
+                <span id="playbackDurationMetric">时长 -</span>
+                <span id="playbackMessagesMetric">消息 -</span>
+                <span id="playbackSizeMetric">大小 -</span>
+              </div>
+            </div>
+
+            <div class="playback-controls">
+              <button id="playbackRewindBtn" type="button" title="后退一秒">−1s</button>
+              <button id="playbackPlayBtn" class="primary" type="button">播放</button>
+              <button id="playbackForwardBtn" type="button" title="前进一秒">+1s</button>
+              <span id="playbackClock">0:00.0 / 0:00.0</span>
+              <input id="playbackTimeline" type="range" min="0" max="1" step="0.01" value="0" aria-label="回放时间轴">
+              <label class="playback-speed">
+                <span>速度</span>
+                <select id="playbackSpeedSelect">
+                  <option value="0.25">0.25×</option>
+                  <option value="0.5">0.5×</option>
+                  <option value="1" selected>1×</option>
+                  <option value="1.5">1.5×</option>
+                  <option value="2">2×</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="playback-camera-grid">
+              <article class="playback-camera" data-playback-camera="cam_high">
+                <div class="playback-camera-head">
+                  <strong>顶部相机</strong>
+                  <span data-playback-frame-meta>-</span>
+                </div>
+                <div class="playback-camera-viewport">
+                  <img data-playback-image alt="顶部相机回放画面" decoding="async">
+                  <span data-playback-placeholder>无画面</span>
+                </div>
+              </article>
+              <article class="playback-camera" data-playback-camera="cam_left">
+                <div class="playback-camera-head">
+                  <strong>左腕相机</strong>
+                  <span data-playback-frame-meta>-</span>
+                </div>
+                <div class="playback-camera-viewport">
+                  <img data-playback-image alt="左腕相机回放画面" decoding="async">
+                  <span data-playback-placeholder>无画面</span>
+                </div>
+              </article>
+              <article class="playback-camera" data-playback-camera="cam_right">
+                <div class="playback-camera-head">
+                  <strong>右腕相机</strong>
+                  <span data-playback-frame-meta>-</span>
+                </div>
+                <div class="playback-camera-viewport">
+                  <img data-playback-image alt="右腕相机回放画面" decoding="async">
+                  <span data-playback-placeholder>无画面</span>
+                </div>
+              </article>
+            </div>
+
+            <div class="trajectory-toolbar">
+              <div>
+                <strong>同步轨迹</strong>
+                <span>竖线位置与上方视频时间一致</span>
+              </div>
+              <label>
+                <span>机械臂</span>
+                <select id="playbackArmSelect">
+                  <option value="right">右臂</option>
+                  <option value="left">左臂</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="trajectory-grid">
+              <article class="trajectory-card">
+                <div class="trajectory-card-head">
+                  <div>
+                    <strong>末端位置</strong>
+                    <span id="poseTopicLabel">-</span>
+                  </div>
+                  <div class="plot-legend">
+                    <span style="--series-color:#e45756">X</span>
+                    <span style="--series-color:#4c78a8">Y</span>
+                    <span style="--series-color:#54a24b">Z</span>
+                  </div>
+                </div>
+                <canvas id="poseTrajectoryCanvas" height="260"></canvas>
+                <div id="poseCurrentValues" class="trajectory-values">-</div>
+              </article>
+
+              <article class="trajectory-card">
+                <div class="trajectory-card-head">
+                  <div>
+                    <strong>关节角</strong>
+                    <span id="jointTopicLabel">-</span>
+                  </div>
+                  <div id="jointLegend" class="plot-legend"></div>
+                </div>
+                <canvas id="jointTrajectoryCanvas" height="260"></canvas>
+                <div id="jointCurrentValues" class="trajectory-values">-</div>
+              </article>
+            </div>
+
+            <div id="playbackWarnings" class="playback-warnings hidden"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/static/app.js"></script>
+  <script type="module" src="/static/cameras.js?v=20260812-playback"></script>
+  <script type="module" src="/static/playback.js?v=20260812-playback"></script>
+</body>
+</html>

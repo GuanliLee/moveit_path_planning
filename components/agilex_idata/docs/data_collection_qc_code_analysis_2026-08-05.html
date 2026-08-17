@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>数据采集与质检平台代码分析报告</title>
+  <style>
+    :root {
+      --ink: #18212d;
+      --muted: #596675;
+      --line: #d9e0e8;
+      --soft: #f4f7fa;
+      --blue: #175cd3;
+      --blue-soft: #eaf2ff;
+      --green: #067647;
+      --green-soft: #ecfdf3;
+      --amber: #b54708;
+      --amber-soft: #fff4e5;
+      --red: #b42318;
+      --red-soft: #fef3f2;
+    }
+    * { box-sizing: border-box; }
+    html { font-size: 14px; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.62;
+      background: white;
+    }
+    @page {
+      size: A4;
+      margin: 16mm 14mm 18mm;
+      @top-center {
+        content: "数据采集与质检平台代码分析报告";
+        color: #66788c;
+        font: 8.5pt "Noto Sans CJK SC", sans-serif;
+      }
+      @bottom-center {
+        content: counter(page) " / " counter(pages);
+        color: #718096;
+        font: 8.5pt "DejaVu Sans", sans-serif;
+      }
+    }
+    h1, h2, h3, h4 { line-height: 1.28; break-after: avoid; }
+    h1 { font-size: 29px; margin: 0 0 14px; letter-spacing: .02em; }
+    h2 {
+      margin: 30px 0 13px;
+      padding-bottom: 7px;
+      border-bottom: 2px solid #b9cbe8;
+      color: #123e7c;
+      font-size: 21px;
+    }
+    h3 { margin: 22px 0 9px; color: #174b88; font-size: 16.5px; }
+    h4 { margin: 15px 0 6px; font-size: 14px; }
+    p { margin: 7px 0; }
+    ul, ol { margin: 7px 0 11px 1.4em; padding: 0; }
+    li { margin: 3px 0; }
+    code {
+      font-family: "DejaVu Sans Mono", monospace;
+      font-size: .88em;
+      color: #26374b;
+      background: #edf1f5;
+      border-radius: 3px;
+      padding: 1px 4px;
+      overflow-wrap: anywhere;
+    }
+    pre {
+      margin: 10px 0 14px;
+      padding: 12px 14px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      border: 1px solid #d7e0ea;
+      border-left: 4px solid #5283c8;
+      border-radius: 5px;
+      background: #f7f9fc;
+      color: #223044;
+      font: 11.5px/1.55 "DejaVu Sans Mono", "Noto Sans Mono CJK SC", monospace;
+      break-inside: avoid;
+    }
+    table {
+      width: 100%;
+      margin: 10px 0 16px;
+      border-collapse: collapse;
+      font-size: 11.5px;
+      break-inside: auto;
+    }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; }
+    th, td {
+      padding: 6px 7px;
+      vertical-align: top;
+      text-align: left;
+      border: 1px solid var(--line);
+    }
+    th { color: #173d70; background: #edf3fa; font-weight: 700; }
+    tbody tr:nth-child(even) { background: #fafbfd; }
+    a { color: #175cd3; text-decoration: none; }
+    .cover {
+      height: 245mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      break-after: page;
+      position: relative;
+      padding: 18mm 12mm;
+      background: linear-gradient(145deg, #f7faff 0%, #edf4ff 58%, #ffffff 100%);
+      border: 1px solid #d8e5f6;
+    }
+    .cover::before {
+      content: "";
+      position: absolute;
+      left: 12mm;
+      top: 42mm;
+      width: 21mm;
+      height: 5px;
+      background: #175cd3;
+    }
+    .cover .kicker { margin-bottom: 13px; color: var(--blue); font-size: 15px; font-weight: 700; }
+    .cover .subtitle { max-width: 620px; color: var(--muted); font-size: 17px; }
+    .cover .meta { margin-top: 44px; color: #66788c; font-size: 12.5px; }
+    .cover .meta div { margin: 5px 0; }
+    .page-break { break-before: page; }
+    .toc {
+      padding: 16px 20px;
+      border: 1px solid var(--line);
+      background: #fafbfd;
+      border-radius: 7px;
+    }
+    .toc ol { columns: 2; column-gap: 30px; }
+    .toc li { break-inside: avoid; margin: 6px 0; }
+    .summary {
+      padding: 14px 16px;
+      border: 1px solid #bcd1f3;
+      border-left: 5px solid var(--blue);
+      border-radius: 6px;
+      background: var(--blue-soft);
+    }
+    .callout { margin: 12px 0; padding: 10px 13px; border-radius: 5px; break-inside: avoid; }
+    .callout strong { display: block; margin-bottom: 3px; }
+    .warning { border: 1px solid #f0c6a7; background: var(--amber-soft); color: #713b12; }
+    .danger { border: 1px solid #f2b8b5; background: var(--red-soft); color: #7a271a; }
+    .success { border: 1px solid #a9dec4; background: var(--green-soft); color: #075b39; }
+    .pill {
+      display: inline-block;
+      margin-right: 4px;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 10.5px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .keep { color: var(--green); background: var(--green-soft); }
+    .config { color: var(--blue); background: var(--blue-soft); }
+    .optional { color: var(--amber); background: var(--amber-soft); }
+    .archive { color: var(--red); background: var(--red-soft); }
+    .small { color: var(--muted); font-size: 11.5px; }
+    .path { font-family: "DejaVu Sans Mono", monospace; font-size: 10.5px; overflow-wrap: anywhere; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0; }
+    .metric { padding: 10px; border: 1px solid var(--line); border-radius: 5px; background: #fafbfd; }
+    .metric b { display: block; color: #174b88; font-size: 20px; line-height: 1.1; }
+    .metric span { color: var(--muted); font-size: 10.5px; }
+    .footer-note { margin-top: 26px; padding-top: 8px; color: #718096; border-top: 1px solid var(--line); font-size: 10px; }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div class="kicker">AGILEX iData · 现状审计与重构输入</div>
+    <h1>数据采集与质检平台<br>代码分析报告</h1>
+    <div class="subtitle">覆盖当前生产入口、ROS2 录制、两套数据转换链、自动质检、人工评级、数据修复、LeRobot 导出与回放，并给出脚本保留/配置化/归档建议。</div>
+    <div class="meta">
+      <div>分析目录：<span class="path">/home/caizj/agilex_idata</span></div>
+      <div>报告日期：2026-08-05</div>
+      <div>分析基线：当前工作区（包含尚未提交的本地修改）</div>
+      <div>性质：只读代码审计，未修改生产代码或数据</div>
+    </div>
+  </section>
+
+  <section>
+    <h2 style="margin-top:0">目录</h2>
+    <div class="toc">
+      <ol>
+        <li><a href="#conclusion">结论摘要</a></li>
+        <li><a href="#architecture">当前真实生产架构</a></li>
+        <li><a href="#entrypoints">三个生产入口分析</a></li>
+        <li><a href="#collection-core">采集核心全部功能</a></li>
+        <li><a href="#collection-inventory">collection 脚本分类</a></li>
+        <li><a href="#qc-platform">质检平台功能和模块</a></li>
+        <li><a href="#data-contracts">数据生命周期与产物</a></li>
+        <li><a href="#problems">关键冗余、缺陷与风险</a></li>
+        <li><a href="#retain">真正需要保留的能力</a></li>
+        <li><a href="#target">建议的目标架构</a></li>
+        <li><a href="#roadmap">建议实施顺序</a></li>
+        <li><a href="#verification">验证和分析边界</a></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="conclusion">
+    <h2>1. 结论摘要</h2>
+    <div class="summary">
+      <p><strong>当前系统不是“很多脚本共同组成一条链”，而是少数生产核心被大量旧入口、配置壳和特殊模式包围。</strong></p>
+      <ul>
+        <li>真正负责采集的是 <code>collect_mobile_episode_web.sh</code>。</li>
+        <li><code>collect_mobile_pipeline_web_staged.sh</code> 是总编排器，混合了网关、前端、ROS 状态机桥接和进程管理。</li>
+        <li><code>collect_mobile_pipeline_web_fixed_stage.sh</code> 是 staged 的配置壳，并没有在程序内部真正消费固定阶段变量。</li>
+        <li>质检后台核心是约 8200 行的 <code>pipeline_web_app.py</code>；四相机 Shell 也是配置壳。</li>
+        <li>采集侧旧版 HDF5 和质检侧 aligned HDF5 构成两套转换链，同一 MCAP 经常重复转换。</li>
+      </ul>
+    </div>
+
+    <div class="metric-grid">
+      <div class="metric"><b>20</b><span>collection 目录 Shell 脚本</span></div>
+      <div class="metric"><b>≈16k</b><span>collection Shell 总行数</span></div>
+      <div class="metric"><b>≈30.5k</b><span>质检仓库 Python/Shell 行数</span></div>
+      <div class="metric"><b>3</b><span>当前明确生产入口</span></div>
+    </div>
+
+    <p>最主要的技术债不是脚本文件数量，而是职责和数据契约重复：</p>
+    <ol>
+      <li>同一份 MCAP 被两套已经分叉的转换代码处理。</li>
+      <li>Shell 文件内嵌大量 Python、HTML、CSS 和 JavaScript。</li>
+      <li>商品、任务文本、相机、等级、失败原因存在多套来源。</li>
+      <li>采集与质检各自维护转换、审核、回放和元数据逻辑。</li>
+      <li>自动 QC 的 <code>accepted</code> 与人工 A/B/C/F 等级未统一。</li>
+    </ol>
+  </section>
+
+  <section id="architecture">
+    <h2>2. 当前真实生产架构</h2>
+    <pre>单阶段入口
+collect_mobile_pipeline_web_fixed_stage.sh
+                 │
+                 ▼
+全阶段/统一入口
+collect_mobile_pipeline_web_staged.sh
+      ┌──────────┼────────────────┐
+      │          │                │
+      ▼          ▼                ▼
+采集核心       ROS状态机桥接       数据可视化
+collect_mobile_  内嵌Python        visualize_dataset_web.py
+episode_web.sh
+      │
+      ├─ 采集前硬件检查
+      ├─ ROS2 capture service
+      ├─ MCAP录制
+      ├─ MCAP→旧版 ALOHA HDF5
+      ├─ 轻量HDF5检查
+      ├─ A/B/F人工审核
+      └─ 可选 LeRobot 转换
+
+独立质检入口
+collect_mobile_pipeline_qc_web_four_camera.sh
+                 │
+                 ▼
+collect_mobile_pipeline_qc_web.sh
+                 │
+                 ▼
+pipeline_web_app.py
+      │
+      ├─ MCAP→aligned HDF5（第二套转换）
+      ├─ 完整自动质检和三级标注
+      ├─ A/B/C/F人工评级
+      ├─ 静止帧裁剪、删除和重编号
+      ├─ 分等级导出 LeRobot
+      └─ HDF5/LeRobot回放</pre>
+
+    <h3>2.1 采集侧旧格式路径</h3>
+    <pre>MCAP
+→ ros2_ws/data_tools/mcap_to_aloha_data.py
+→ ros2_ws/data_tools/data_sync.py
+→ ros2_ws/data_tools/data_to_hdf5.py
+→ aloha/episodeN/episodeN.hdf5
+→ verify_mobile_hdf5.py</pre>
+
+    <h3>2.2 质检侧标准化路径</h3>
+    <pre>MCAP
+→ convert_mcap_dataset.py
+→ mcap_to_icra_episode.py
+→ 质检仓库中的 mcap_to_aloha_data.py / data_sync.py / data_to_hdf5.py
+→ ario_hdf5_to_aligned_joints.py
+→ states/aligned_joints.h5 + MP4 + episode_meta.json
+→ run_quality_pipeline.py
+→ 按 A/B/C/F 导出 LeRobot</pre>
+
+    <div class="warning callout">
+      <strong>转换代码已经发生真实分叉</strong>
+      两处同名的 <code>mcap_to_aloha_data.py</code>、<code>data_sync.py</code>、<code>data_to_hdf5.py</code> 有大量差异，不能当作简单副本直接删除；但继续双轨运行会持续扩大数据格式漂移。
+    </div>
+  </section>
+
+  <section id="entrypoints" class="page-break">
+    <h2>3. 三个生产入口分析</h2>
+
+    <h3>3.1 单阶段入口：collect_mobile_pipeline_web_fixed_stage.sh</h3>
+    <p>这是约 98 行的配置 wrapper，最终通过 <code>exec</code> 调用 staged 脚本。它负责：</p>
+    <ul>
+      <li>只接受 <code>--fixed-stage 2</code>。</li>
+      <li>配置移动机器人、四相机、自动激活、开始/结束/就绪 ROS topic。</li>
+      <li>默认关闭五阶段采集，使一次开始/结束形成单段 episode。</li>
+      <li>指定商品库存和移动采集 YAML。</li>
+    </ul>
+    <div class="danger callout">
+      <strong>隐性问题：FIXED_COLLECTION_STAGE 没有消费者</strong>
+      Wrapper 导出了 <code>FIXED_COLLECTION_STAGE=2</code>，但当前代码中没有找到读取它的位置。因此“第二阶段”并不是平台内部强制的业务语义，而是依靠外部状态机和 topic 约定实现。
+    </div>
+
+    <h3>3.2 全阶段入口：collect_mobile_pipeline_web_staged.sh</h3>
+    <p>这是超过 3000 行的总编排器，主要职责包括：</p>
+    <ul>
+      <li>加载 ROS2、相机环境，设置 ROS_DOMAIN_ID 和 FastDDS。</li>
+      <li>启动采集核心、数据可视化和可选质检服务。</li>
+      <li>端口探测、服务 readiness、日志重定向和进程组清理。</li>
+      <li>内嵌 Python HTTP 反向代理以及完整 HTML/CSS/JavaScript 网关。</li>
+      <li>内嵌约 1500 行 Python ROS2 状态机桥接。</li>
+      <li>从商品配置动态生成阶段任务提示词。</li>
+    </ul>
+    <p>五阶段业务定义：</p>
+    <ol>
+      <li>底盘移动到货架。</li>
+      <li>左右夹爪抓取目标商品。</li>
+      <li>底盘移动到小车。</li>
+      <li>左右夹爪放置商品。</li>
+      <li>底盘返回起始位置。</li>
+    </ol>
+    <p>ROS 桥接支持普通单段、五阶段、抓取/放置双数据集、人工审核门控、旧锁存事件清理，并维护 <code>disabled / idle / starting / recording / saving / reviewing / error</code> 等状态。</p>
+    <div class="warning callout">
+      <strong>脚本名称与默认行为不一致</strong>
+      <code>COLLECTION_STAGED_CAPTURE_DEFAULT=0</code> 和 <code>STATE_MACHINE_STAGED_DEFAULT=0</code>，所以 staged 脚本默认并不会启用五阶段模式；需要页面勾选或环境变量显式打开。
+    </div>
+    <ul>
+      <li>第四阶段主 topic 存在 <code>state_maching</code> 拼写错误，同时保留了正确 alias。</li>
+      <li>部分网关面板有实现但当前导航不可达。</li>
+      <li>JavaScript 有重复监听片段。</li>
+      <li>状态机规则与采集核心及 <code>grasp_place_collection.py</code> 有交叠。</li>
+    </ul>
+
+    <h3>3.3 四相机质检入口</h3>
+    <p><code>collect_mobile_pipeline_qc_web_four_camera.sh</code> 只有约 24 行，负责端口、四相机 robot profile、topic YAML、head 来源、camera layout 和相机选择 UI 等参数，随后调用基础启动器。</p>
+    <p><code>collect_mobile_pipeline_qc_web.sh</code> 才负责解析数据目录、机器人、任务、repo、GPU、并发参数，选择具有不同依赖的 Python 环境，检查端口和依赖并启动 <code>pipeline_web_app.py</code>。</p>
+    <p>结论：四相机入口应保留用户可识别的启动方式，但实现应收敛为声明式 profile，而不是独立 Shell 逻辑。</p>
+  </section>
+
+  <section id="collection-core">
+    <h2>4. 采集核心全部功能</h2>
+    <p><code>collect_mobile_episode_web.sh</code> 约 3500 行，是采集系统真正核心，同时承担配置、进程、ROS、业务、Web 和文件系统职责。</p>
+
+    <h3>4.1 采集配置与后台处理</h3>
+    <ul>
+      <li>管理数据目录、episode 编号、移动底盘和 staged 模式。</li>
+      <li>选择相机、手臂、底盘、升降 topic 配置。</li>
+      <li>控制是否转换、质检、导出 LeRobot。</li>
+      <li>默认录完转旧版 HDF5、执行采集侧轻量 QC；默认不导出 LeRobot。</li>
+      <li>默认后台处理，支持有限并发；通过脚本自递归的 PROCESS_ONLY 模式实现。</li>
+    </ul>
+
+    <h3>4.2 采集前硬件检查</h3>
+    <p><code>check_mobile_topics.sh</code> 检查 4 个 RGB 相机、左右主从臂、左右末端位姿、localization/odom、底盘状态/动作、升降状态/动作及服务。检查不仅验证 topic 存在，还验证消息类型、payload、数值有限性和实际数据到达。</p>
+    <p><code>camera_timestamp_health.py</code> 订阅四路压缩图像，计算消息到达时间与 header 差、P90 延迟、多相机时间戳中位差和最小样本数；异常时 fail-closed，拒绝采集。</p>
+
+    <h3>4.3 ROS2 MCAP 录制</h3>
+    <p>移动采集 launch 实际启动 Python 版 <code>record_mcap.py</code>，而非历史 C++ <code>dataCapture.cpp</code>。录制器：</p>
+    <ul>
+      <li>从 YAML 读取 topic，使用 rosbag2 SequentialWriter 写 MCAP。</li>
+      <li>提供 <code>/data_tools_dataCapture/capture_service</code>。</li>
+      <li>每秒统计 topic 频率并生成 <code>capture_health.json</code>。</li>
+      <li>记录覆盖率、频率失败和最大相机帧间隔。</li>
+    </ul>
+    <div class="warning callout"><strong>覆盖风险</strong>启动已有 episode 时，录制器存在直接删除旧 episode 目录的逻辑，需要在重构中改为显式冲突和可恢复操作。</div>
+
+    <h3>4.4 元数据与采集侧审核</h3>
+    <p><code>collection_episode_metadata.py</code> 维护商品目标、左右手对象、scene/items、task、A/B/F、失败原因和审核状态，并在 MCAP 与旧版 ALOHA HDF5 之间同步 sidecar。F/丢弃会删除 raw 与 ALOHA，episode 编号可能复用，未审核不能进入下一条。</p>
+
+    <h3>4.5 Web API、回放与安全</h3>
+    <p>核心 API 包括 <code>/status</code>、<code>/config</code>、<code>/start</code>、<code>/stage</code>、<code>/save</code>、<code>/abandon</code>、<code>/check</code>、<code>/quality/review</code>，以及回放、急停、复位和退出接口。</p>
+    <p>平台支持旧 HDF5、aligned HDF5、LeRobot 的可视化和移动机器人真机回放；软件急停可发布零速度、保持机械臂/升降机构、停止采集和回放并丢弃当前 episode。</p>
+    <p>当前状态由 FIFO、JSON 文件、进程内状态和控制文件共同维护，这是竞态、残留状态和恢复复杂度的主要来源。</p>
+  </section>
+
+  <section id="collection-inventory" class="page-break">
+    <h2>5. collection 目录脚本分类</h2>
+
+    <h3>5.1 生产核心：必须保留能力</h3>
+    <table>
+      <thead><tr><th>文件</th><th>当前作用</th><th>重构判断</th></tr></thead>
+      <tbody>
+        <tr><td class="path">collect_mobile_episode_web.sh</td><td>采集、转换、审核、回放、急停、Web 控制</td><td><span class="pill keep">核心</span>优先拆成 Python 服务</td></tr>
+        <tr><td class="path">collect_mobile_pipeline_web_staged.sh</td><td>网关、状态机桥接、子服务编排</td><td><span class="pill keep">核心</span>拆出网关、桥接、前端</td></tr>
+        <tr><td class="path">check_mobile_topics.sh</td><td>移动平台 fail-closed 采集前检查</td><td><span class="pill keep">核心</span>逐步 Python 化</td></tr>
+        <tr><td class="path">camera_timestamp_health.py</td><td>四相机时间戳健康检查</td><td><span class="pill keep">核心</span>并入统一相机 profile</td></tr>
+        <tr><td class="path">verify_mobile_hdf5.py</td><td>旧版移动 HDF5 轻量质检</td><td><span class="pill keep">短期保留</span>统一格式后并入 QC</td></tr>
+        <tr><td class="path">collection_targets.py</td><td>商品列表和五阶段提示词</td><td><span class="pill keep">保留能力</span>商品定义统一</td></tr>
+        <tr><td class="path">collection_episode_metadata.py</td><td>episode 元数据和 A/B/F 审核</td><td><span class="pill keep">保留能力</span>升级为统一领域模型</td></tr>
+        <tr><td class="path">collect_mobile_pipeline_qc_web.sh</td><td>质检平台基础启动器</td><td><span class="pill keep">保留启动能力</span>缩为薄 launcher</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.2 有用但本质是配置壳</h3>
+    <table>
+      <thead><tr><th>文件</th><th>当前作用</th><th>建议</th></tr></thead>
+      <tbody>
+        <tr><td class="path">collect_mobile_pipeline_web_fixed_stage.sh</td><td>单阶段/第二阶段 preset</td><td><span class="pill config">配置化</span>改为 fixed_stage.yaml</td></tr>
+        <tr><td class="path">collect_mobile_pipeline_qc_web_four_camera.sh</td><td>四相机质检 preset</td><td><span class="pill config">配置化</span>改为 four_camera.yaml</td></tr>
+        <tr><td class="path">collect_mobile_pipeline_web_grasp_place.sh</td><td>抓取/放置双目录采集</td><td><span class="pill config">配置化</span>改为 mode profile</td></tr>
+        <tr><td class="path">grasp_place_collection.py</td><td>阶段转换、锁存和审核规则</td><td><span class="pill keep">保留逻辑</span>可作为新状态机基础</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.3 特殊工作流：按实际使用保留</h3>
+    <table>
+      <thead><tr><th>文件</th><th>作用</th><th>判断</th></tr></thead>
+      <tbody>
+        <tr><td class="path">collect_mobile_episode_web_left_arm.sh</td><td>左臂单臂采集 wrapper</td><td><span class="pill optional">可选</span>只有单臂场景需要</td></tr>
+        <tr><td class="path">check_mobile_topics_left_arm.sh</td><td>左臂采集前检查</td><td><span class="pill optional">可选</span>跟随单臂模式</td></tr>
+        <tr><td class="path">publish_static_right_arm_topics.py</td><td>单左臂时发布固定右臂 topic</td><td><span class="pill optional">兼容工具</span></td></tr>
+        <tr><td class="path">aloha_left_arm_data_params.yaml</td><td>非移动左臂配置</td><td><span class="pill optional">可选配置</span></td></tr>
+        <tr><td class="path">aloha_mobile_left_arm_data_params.yaml</td><td>移动左臂配置</td><td><span class="pill optional">可选配置</span></td></tr>
+        <tr><td class="path">piper_slow_return_zero_left.sh</td><td>左臂慢速回零</td><td><span class="pill optional">可选工具</span></td></tr>
+        <tr><td class="path">collect_mobile_pipeline_web_inference.sh</td><td>推理触发录制和状态机</td><td><span class="pill optional">条件保留</span>仅推理采集仍使用时</td></tr>
+        <tr><td class="path">collect_mobile_to_lerobot_pipeline.sh</td><td>命令行 MCAP/HDF5/LeRobot 串联</td><td><span class="pill optional">条件保留</span>Web 完全覆盖后归档</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.4 主生产链未调用：优先归档候选</h3>
+    <table>
+      <thead><tr><th>文件</th><th>历史用途</th><th>建议</th></tr></thead>
+      <tbody>
+        <tr><td class="path">collect_mobile_pipeline_web.sh</td><td>较早的统一采集 Web 编排器</td><td><span class="pill archive">归档候选</span></td></tr>
+        <tr><td class="path">collect_mobile_episode.sh</td><td>移动机器人命令行采集</td><td><span class="pill archive">归档候选</span></td></tr>
+        <tr><td class="path">collect_mobile_episode_staged.sh</td><td>旧 staged 命令行采集</td><td><span class="pill archive">归档候选</span></td></tr>
+        <tr><td class="path">collect_episode.sh</td><td>非移动/通用命令行采集</td><td><span class="pill archive">归档候选</span></td></tr>
+        <tr><td class="path">collect_episode_web.sh</td><td>旧通用 Web 采集</td><td><span class="pill archive">归档候选</span></td></tr>
+        <tr><td class="path">batch_convert_dataset.sh</td><td>旧批量转换</td><td><span class="pill archive">归档候选</span></td></tr>
+        <tr><td class="path">convert_episode.sh</td><td>单 episode 通用转换</td><td><span class="pill archive">归档候选</span></td></tr>
+        <tr><td class="path">convert_mobile_episode.sh</td><td>单 episode 移动转换</td><td><span class="pill archive">归档候选</span></td></tr>
+      </tbody>
+    </table>
+    <div class="warning callout"><strong>不要立即物理删除</strong>仓库内部未发现生产调用不代表外部没有绝对路径调用。删除前应检查 systemd、crontab、桌面图标、操作文档、其他仓库和采集机器个人快捷脚本。建议先移入 archive 并观察一轮生产周期。</div>
+  </section>
+
+  <section id="qc-platform">
+    <h2>6. 质检平台功能和模块</h2>
+
+    <h3>6.1 Web 总控：pipeline_web_app.py</h3>
+    <p>该文件约 8200 行，已经是完整数据管理后台，而非单纯质检页面。主要功能：</p>
+    <ul>
+      <li>扫描数据集，推导 MCAP、HDF5、QC 报告和 LeRobot 路径。</li>
+      <li>支持 ALOHA/G2，四相机、三相机 front、三相机 global。</li>
+      <li>动态生成三相机 profile，管理任务、robot、repo、GPU、并发等配置。</li>
+      <li>后台 job 管理、日志、停止任务和状态缓存。</li>
+      <li>MCAP 转换+QC、已有 HDF5 重新 QC、静止帧裁剪、HDF5 删除。</li>
+      <li>等级同步、重编号、按 A/B/C/F 导出 LeRobot。</li>
+      <li>HDF5 与 LeRobot 回放、视频区间读取。</li>
+      <li>人工评级、失败原因、FPS、帧数、相机缺失和最长静止段展示。</li>
+      <li>校验 HDF5 task、LeRobot task 和 episode mapping 一致性。</li>
+    </ul>
+
+    <h3>6.2 MCAP 转换</h3>
+    <table>
+      <thead><tr><th>模块</th><th>功能</th></tr></thead>
+      <tbody>
+        <tr><td class="path">scripts/convert_mcap_dataset.py</td><td>批量并行转换 episode</td></tr>
+        <tr><td class="path">scripts/convert_mcap_dataset_four_camera.py</td><td>四相机参数 wrapper；当前可选择相机页面主要使用公共转换器</td></tr>
+        <tr><td class="path">mcap_conversion/scripts/mcap_to_icra_episode.py</td><td>单 episode 总编排；产出 aligned HDF5、视频、meta、task 和同步统计</td></tr>
+        <tr><td class="path">mcap_to_hdf5.py / mcap_to_aloha_data.py</td><td>读取 MCAP、解析 ALOHA topic 和生成中间数据</td></tr>
+        <tr><td class="path">data_sync.py / data_to_hdf5.py</td><td>多 topic 时间同步及中间 HDF5 写入</td></tr>
+        <tr><td class="path">ario_hdf5_to_aligned_joints.py</td><td>转换为 aligned joints 标准结构</td></tr>
+        <tr><td class="path">camera_layouts.py</td><td>三/四相机布局、必须视频和 timestamp key 契约</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.3 自动质检规则</h3>
+    <p><code>run_quality_pipeline.py</code> 负责单集/批量任务和并行处理，<code>episode_io.py</code> 适配 G2、ALOHA HDF5、parquet 和 raw，<code>quality_pipeline/qc.py</code> 执行以下检查：</p>
+    <ol>
+      <li>state 维度。</li>
+      <li>action 维度。</li>
+      <li>NaN/Inf 等非有限数值。</li>
+      <li>时间戳单调性和最大间隔。</li>
+      <li>实际 FPS。</li>
+      <li>相机帧完整性。</li>
+      <li>连续重复/修复相机帧。</li>
+      <li>轨迹时长。</li>
+      <li>关节、状态跳变和运动稳定性。</li>
+      <li>action、state、base 连续静止段。</li>
+      <li>夹爪活动量。</li>
+    </ol>
+    <p>四相机 ALOHA 核心契约为 state 21 维、action 18 维、最低约 29 FPS、时长约 4–10 秒、相机缺帧比例阈值和最长静止帧约 15。评分从 100 开始，硬失败令 <code>accepted=False</code>。</p>
+
+    <h3>6.4 三级标注和视觉增强</h3>
+    <ul>
+      <li>L1：轨迹级场景、任务、对象。</li>
+      <li>L2：左右手操作分段和重叠。</li>
+      <li>L3：逐帧运动学和自然语言信息。</li>
+      <li>支持人工修正、task preset 和 schema。</li>
+      <li>可选本地 YOLO、场景布局、OpenAI-compatible VLM、手部目标识别和 mock 后端。</li>
+    </ul>
+
+    <h3>6.5 裁剪、修复与回放</h3>
+    <table>
+      <thead><tr><th>模块</th><th>功能</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td class="path">trim_stationary_hdf5_episodes.py</td><td>识别并裁掉过长静止段，同步重写 HDF5、视频、meta 和 segments</td><td><span class="pill keep">Web正在使用</span></td></tr>
+        <tr><td class="path">repair_need_repair_episodes.py</td><td>重新生成、插值时间缺口和视频修复</td><td><span class="pill optional">旧独立工具</span></td></tr>
+        <tr><td class="path">replay_icra_episode.py</td><td>aligned HDF5 Web 回放、人工复核、删帧/裁剪</td><td><span class="pill keep">正在使用</span></td></tr>
+        <tr><td class="path">lerobot_review_web_app.py</td><td>独立 LeRobot 浏览器</td><td><span class="pill archive">与总平台重叠</span></td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.6 LeRobot 导出与其他工具</h3>
+    <p><code>convert_hdf5_to_lerobot_v2.py</code> 负责相机预检、HDF5 task 权威读取、state/action 映射、CPU/CUDA 视频处理、逐 episode 校验/重试/断点恢复，并写 parquet、videos、tasks、episodes、stats、quality metadata 和 episode mapping。</p>
+    <p><code>normalize_aloha_task_metadata.py</code> 是 HDF5/LeRobot task 批量审计、修改与回滚工具；<code>convert_sim_robotwin_to_aloha_hdf5.py</code> 及其 Shell 属于独立仿真转换工作流。</p>
+  </section>
+
+  <section id="data-contracts" class="page-break">
+    <h2>7. 数据生命周期与产物</h2>
+
+    <h3>7.1 Raw MCAP</h3>
+    <pre>DATA_DIR/episodeN/
+├── episodeN_0.mcap
+├── metadata.yaml / instructions.json（兼容和任务信息）
+├── capture_health.json
+└── episodeN_0_info.json</pre>
+
+    <h3>7.2 采集侧旧版 ALOHA</h3>
+    <pre>DATA_DIR/aloha/episodeN/
+├── episodeN.hdf5
+├── 中间图像、JSON、同步数据
+├── 元数据 sidecar
+└── mobile_qc.json / mobile_qc.md</pre>
+
+    <h3>7.3 质检侧 aligned HDF5</h3>
+    <pre>DATA_ROOT/&lt;camera_namespace&gt;/hdf5_episodes/&lt;dataset&gt;/episodeN/
+├── states/aligned_joints.h5
+├── videos/head_color.mp4
+├── videos/hand_left_color.mp4
+├── videos/hand_right_color.mp4
+└── meta/episode_meta.json</pre>
+    <p>相机 namespace 包括 <code>four_camera</code>、<code>three_camera_front</code>、<code>three_camera_global</code>。HDF5 根目录还可能有 <code>renumber_plan.json</code>。</p>
+
+    <h3>7.4 QC 报告</h3>
+    <pre>qc_reports/&lt;dataset&gt;_&lt;timestamp&gt;/
+├── episodeN/annotations.json
+├── episodeN/qc_report.json
+├── episodeN/final_report_table.md
+├── episodeN/manifest.json
+├── batch_summary.json
+└── batch_summary.md</pre>
+
+    <h3>7.5 LeRobot</h3>
+    <pre>LEROBOT_ROOT/&lt;repo_id&gt;/&lt;A|B|C|F&gt;/
+├── data/chunk-*/episode_*.parquet
+├── videos/
+├── meta/info.json
+├── meta/tasks.jsonl
+├── meta/episodes.jsonl
+├── meta/stats.json
+└── episode_name_mapping.json</pre>
+
+    <p>建议未来将 raw MCAP 定义为不可变原始真值，aligned HDF5 定义为唯一正式中间格式，旧版 ALOHA HDF5 仅作为过渡兼容缓存。</p>
+  </section>
+
+  <section id="problems">
+    <h2>8. 关键冗余、缺陷与风险</h2>
+
+    <h3>8.1 自动 QC 与 A/B/C/F 等级脱节</h3>
+    <div class="danger callout">
+      <strong>自动失败的 episode 仍可能默认成为 A</strong>
+      当前自动质检产生 <code>accepted</code>、score、warnings、errors；人工审核产生 A/B/C/F。最终整理逻辑中，如果没有人工等级且没有显式 F，episode 即使 <code>accepted=False</code> 也可能默认标为 A。C 基本是人工等级，自动 QC 没有明确等级映射。
+    </div>
+    <p>建议拆为三个正交字段：</p>
+    <pre>qc_status:        PASS | FAIL | NEED_REVIEW
+manual_grade:    A | B | C | F | null
+lifecycle_status: RAW | CONVERTED | QC_DONE | REVIEWED | EXPORTED</pre>
+
+    <h3>8.2 商品和任务存在多套来源</h3>
+    <p>当前来源至少包括 <code>collection_targets.py</code>、<code>market_scene_inventory.json</code>、<code>task_names.py</code>、robot profile 的 YOLO alias、HDF5 task、episode_meta items/task 和 LeRobot tasks/mapping。各列表商品集合并不完全一致。</p>
+    <p>这会直接导致“任务写王老吉，但 items 或前景是其他商品”一类错误。修结果不能消除源头，应建立唯一 <code>products.yaml</code>，包含 canonical id、中英文名、alias、视觉类名、库存和标准任务模板。</p>
+
+    <h3>8.3 相机契约重复定义</h3>
+    <p>相机信息分散在录制 YAML、topic preflight、时间戳脚本、旧版 HDF5 verifier、质检 topic YAML、camera layouts、robot profiles、转换 meta 和 LeRobot converter。相机增加或重命名需要多处同步，易导致三相机 front/global 混用。</p>
+
+    <h3>8.4 失败原因和人工审核规则重复</h3>
+    <p>A/B/F 或 A/B/C/F 的原因、中文文本和字段定义至少重复在采集 JavaScript、collection metadata、mcap converter、HDF5 replay 和 pipeline Web 中，应收敛为一个版本化 schema。</p>
+
+    <h3>8.5 Shell 已成为应用运行时</h3>
+    <p>三个大 Shell 同时承担环境管理、HTTP 服务、ROS node、业务状态机和前端构建。staged、旧 unified、inference 多套 orchestrator 又重复实现相似网关和进程管理。这使单元测试、类型检查、IDE 导航和异常恢复都非常困难。</p>
+
+    <h3>8.6 Web 安全与破坏性操作</h3>
+    <p>质检 Web 默认监听 <code>0.0.0.0</code>，提供删除 HDF5、裁剪、修改等级、重编号和启动处理等接口，但未见正式认证和 CSRF 防护。</p>
+    <p>录制覆盖、采集丢弃、HDF5 删除、原地裁剪和重编号都可能修改多类文件，需要操作审计、权限控制和恢复策略。</p>
+
+    <h3>8.7 静止裁剪不是跨文件事务</h3>
+    <p>裁剪依次修改 HDF5、多个 MP4 和 meta。任一步中断会留下 HDF5 已裁、视频未裁或临时视频残留的“半裁剪”状态。现有 guard 能在下一次运行时检测，但不能让第一次更新原子化。</p>
+  </section>
+
+  <section id="retain" class="page-break">
+    <h2>9. 真正需要保留的能力</h2>
+    <p>重构不应以“保留哪些大脚本”为目标，而应保留下列业务能力，并允许旧脚本退出：</p>
+    <table>
+      <thead><tr><th>能力域</th><th>必须保留的能力</th></tr></thead>
+      <tbody>
+        <tr><td>采集前检查</td><td>topic 类型与 payload、机械臂/底盘/升降、相机时间戳、失败时禁止采集</td></tr>
+        <tr><td>原始录制</td><td>ROS2 capture service、MCAP、capture health、清晰的 episode 冲突策略</td></tr>
+        <tr><td>采集状态机</td><td>单阶段、五阶段、抓取/放置、推理触发、人工审核门控、陈旧 ROS 事件处理</td></tr>
+        <tr><td>元数据</td><td>商品、task、scene/items、阶段、操作手、审核和失败原因</td></tr>
+        <tr><td>转换</td><td>MCAP 到唯一 canonical aligned HDF5，可重复、可恢复、可验证</td></tr>
+        <tr><td>自动质检</td><td>维度、时间戳、FPS、相机、时长、跳变、静止、夹爪等规则</td></tr>
+        <tr><td>人工复核</td><td>独立 qc_status 和 manual_grade，原因、审计、批量操作</td></tr>
+        <tr><td>修复</td><td>从 raw 重建、静止裁剪、事务提交、失败回滚</td></tr>
+        <tr><td>导出</td><td>LeRobot 视频/parquet/meta、断点恢复、严格 task 和 camera 一致性</td></tr>
+        <tr><td>回放与安全</td><td>视觉回放、真机回放、急停、机器人状态保护</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="target">
+    <h2>10. 建议的目标架构</h2>
+    <pre>idata_platform/
+├── domain/
+│   ├── episode.py       # episode 生命周期和不可变量
+│   ├── task.py          # 规范任务与阶段任务
+│   ├── product.py       # 商品ID、中英文名和alias
+│   ├── camera.py        # topic/HDF5/video/QC统一契约
+│   ├── quality.py       # qc_status、grade、reason
+│   └── lifecycle.py
+├── collection/
+│   ├── ros_capture.py
+│   ├── preflight.py
+│   ├── state_machine.py
+│   └── service.py
+├── conversion/
+│   ├── mcap_reader.py
+│   ├── synchronizer.py
+│   └── aligned_hdf5.py
+├── quality/
+│   ├── rules.py
+│   ├── grading.py
+│   ├── trimming.py
+│   └── reports.py
+├── export/lerobot.py
+├── api/
+│   ├── collection_api.py
+│   └── qc_api.py
+├── workers/
+├── frontend/
+└── configs/
+    ├── products.yaml
+    ├── cameras/
+    ├── robots/
+    └── modes/
+        ├── fixed_stage.yaml
+        ├── five_stage.yaml
+        ├── grasp_place.yaml
+        ├── inference.yaml
+        └── left_arm.yaml</pre>
+
+    <h3>10.1 核心原则</h3>
+    <ul>
+      <li>Raw MCAP 永远只读，是原始真值。</li>
+      <li>正式中间格式只保留 aligned HDF5。</li>
+      <li>写入临时目录，全部成功后原子 rename。</li>
+      <li>处理可从 MCAP 幂等重跑，不依赖半成品。</li>
+      <li>所有采集模式由 YAML profile 表达，不复制 Shell。</li>
+      <li>商品、相机、等级和原因各只有一个 source of truth。</li>
+      <li>自动 QC、人工等级、生命周期状态分开。</li>
+      <li>前端不嵌入 Shell；ROS bridge 是独立 Python node。</li>
+      <li>后台任务使用可持久化 job manifest，而不是大量环境变量、FIFO 和全局 JSON 混合状态。</li>
+    </ul>
+  </section>
+
+  <section id="roadmap">
+    <h2>11. 建议实施顺序</h2>
+    <ol>
+      <li><strong>冻结行为：</strong>恢复并补齐采集元数据、fixed stage、任务一致性、裁剪事务和状态恢复测试；准备少量 golden MCAP/HDF5。</li>
+      <li><strong>统一契约：</strong>定义 Episode、Task、Product、Camera、Quality/Grade 和 lifecycle schema。</li>
+      <li><strong>先搬后改：</strong>把 staged 内嵌 Python 网关和 ROS bridge 原样提取为独立模块，暂不改变行为。</li>
+      <li><strong>拆采集核心：</strong>将 Web UI、API、ROS adapter、进程管理、元数据和状态机从大 Shell 分离。</li>
+      <li><strong>统一转换：</strong>选择 aligned HDF5 为 canonical，停止同一 MCAP 双重转换。</li>
+      <li><strong>统一审核：</strong>统一 task/items/product、自动 QC、人工等级和失败原因。</li>
+      <li><strong>模式配置化：</strong>单阶段、五阶段、抓取放置、推理、左臂、相机布局全部 profile 化。</li>
+      <li><strong>合并平台：</strong>合并重复的 HDF5/LeRobot 浏览与回放页面，添加认证和权限。</li>
+      <li><strong>安全改造：</strong>为裁剪、删除、重编号、等级迁移增加事务、审计和可恢复机制。</li>
+      <li><strong>最后归档：</strong>经过外部使用审计和至少一个生产周期观察后，再移除历史 Shell。</li>
+    </ol>
+  </section>
+
+  <section id="verification">
+    <h2>12. 验证和分析边界</h2>
+    <div class="success callout">
+      <strong>现有相关测试结果</strong>
+      运行当前仍存在的自动评级、商品下拉、抓取/放置、可选相机 QC、轨迹时长和状态性能测试：<code>109 passed in 27.05s</code>。
+    </div>
+    <p>但当前工作区存在多项未提交修改，并且一批采集元数据、fixed-stage、任务一致性和平台操作测试处于删除状态。因此 109 个测试通过不能证明整条生产链已具备安全重构保护，只能说明当前剩余测试未失败。</p>
+    <p>本报告是代码静态分析和局部测试结果，不包含对所有采集机器上的 systemd、cron、桌面快捷方式、外部仓库和操作员私有脚本的审计。历史脚本的最终删除必须补充这一步。</p>
+
+    <h3>最终判断</h3>
+    <p>当前系统功能完整，但边界不清。最优先拆分的是 <code>collect_mobile_episode_web.sh</code>、<code>collect_mobile_pipeline_web_staged.sh</code> 和 <code>pipeline_web_app.py</code>；最优先统一的是 MCAP 转换链、商品/任务元数据、相机 profile 和质量状态模型。旧 Shell 应在这些能力被新模块接管且外部调用审计完成后再归档。</p>
+
+    <div class="footer-note">数据采集与质检平台代码分析报告 · 2026-08-05 · 由当前工作区只读审计生成</div>
+  </section>
+</body>
+</html>

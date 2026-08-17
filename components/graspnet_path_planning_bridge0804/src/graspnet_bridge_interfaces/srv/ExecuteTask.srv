@@ -1,0 +1,11 @@
+string task_id
+string task_type
+string target_id
+string arm_name
+uint32 scene_id
+geometry_msgs/PoseStamped tcp_target_pose
+bool gripper_command
+float64 gripper_opening_m
+---
+bool success
+string message

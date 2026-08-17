@@ -1,0 +1,11 @@
+bool start
+bool end
+int32 episode_index
+string dataset_dir
+string instructions
+string task_name
+string task_descriptions
+string task_id
+---
+bool success
+string message

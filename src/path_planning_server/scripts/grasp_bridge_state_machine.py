@@ -69,7 +69,7 @@ def _bridge_task_type_for_step(task_type: str) -> str:
         return "LIFT"
     if task_type in _CARRYING_BRIDGE_STEPS:
         return "CARRY"
-    if task_type in ("OPEN", "PRE_GRASP", "GRASP_APPROACH"):
+    if task_type in ("OPEN", "PRE_GRASP", "GRASP_APPROACH", "RETREAT_AFTER_PLACE"):
         return "MOVE"
     return task_type
 
@@ -79,6 +79,24 @@ def _return_home_step(
 ) -> Tuple[str, PoseStamped, bool, float]:
     """Build the final non-gripper motion back to the task's initial pose."""
     return ("RETURN_HOME", initial_pose, False, 0.0)
+
+
+def _place_completion_steps(
+    final_place_pose: PoseStamped,
+    open_width: float,
+    *,
+    retreat_after_place: bool,
+    return_home_pose: Optional[PoseStamped],
+) -> list[Tuple[str, Optional[PoseStamped], bool, float]]:
+    """Order release, post-place retreat, then the optional photo-position return."""
+    steps: list[Tuple[str, Optional[PoseStamped], bool, float]] = [
+        ("PLACE", final_place_pose, True, float(open_width))
+    ]
+    if retreat_after_place:
+        steps.append(("RETREAT_AFTER_PLACE", None, False, 0.0))
+    if return_home_pose is not None:
+        steps.append(_return_home_step(return_home_pose))
+    return steps
 
 
 def _capture_joint_target_for_profile(
@@ -786,6 +804,13 @@ class GraspBridgeStateMachine(Node):
         self._place_descend_offset_m = float(
             self.declare_parameter("place_descend_offset_m", 0.05).value
         )
+        self._retreat_after_place = bool(
+            self.declare_parameter("retreat_after_place", True).value
+        )
+        self._retreat_after_place_offset_m = max(
+            0.0,
+            float(self.declare_parameter("retreat_after_place_offset_m", 0.05).value),
+        )
         self._grasp_z_offset_m = float(self.declare_parameter("grasp_z_offset_m", 0.0).value)
         self._grasp_orientation_mode = str(
             self.declare_parameter("grasp_orientation_mode", "remote").value
@@ -1119,6 +1144,8 @@ class GraspBridgeStateMachine(Node):
             f"pre_grasp_offset_m={self._pre_grasp_offset_m:.4f}, "
             f"retreat_after_grasp=({self._retreat_after_grasp}, "
             f"offset_m={self._retreat_after_grasp_offset_m:.4f}), "
+            f"retreat_after_place=({self._retreat_after_place}, "
+            f"world_z_offset_m={self._retreat_after_place_offset_m:.4f}), "
             f"ik_orientation_fallback=(enabled={self._grasp_ik_fallback_enabled}, "
             f"profiles={sorted(self._grasp_ik_fallback_profiles)}, "
             f"local_y_deg={list(self._grasp_ik_fallback_local_y_degrees)}, "
@@ -1841,9 +1868,22 @@ class GraspBridgeStateMachine(Node):
             if self._is_cancel_requested():
                 return False, "execution canceled"
 
-        steps.append(("PLACE", final_place_pose, True, open_width))
-        if self._return_to_initial_pose_after_place:
-            steps.append(_return_home_step(self._copy_pose(initial_pose)))
+        return_home_pose = (
+            self._copy_pose(initial_pose)
+            if self._return_to_initial_pose_after_place
+            else None
+        )
+        steps.extend(
+            _place_completion_steps(
+                final_place_pose,
+                open_width,
+                retreat_after_place=(
+                    self._retreat_after_place
+                    and self._retreat_after_place_offset_m > 0.0
+                ),
+                return_home_pose=return_home_pose,
+            )
+        )
 
         selected_grasp_candidate_index: Optional[int] = None
         for index, (task_type, pose, gripper_command, gripper_opening) in enumerate(steps, start=1):
@@ -1853,6 +1893,19 @@ class GraspBridgeStateMachine(Node):
                     pose.pose.position.z += self._lift_offset_m
                 except Exception as exc:  # noqa: BLE001
                     return False, f"failed to compute lift pose: {exc}"
+            elif task_type == "RETREAT_AFTER_PLACE":
+                try:
+                    pose = _elevated_place_waypoint(
+                        self._current_tcp_pose_world(arm_name),
+                        self._retreat_after_place_offset_m,
+                    )
+                    self.get_logger().info(
+                        "Computed post-place retreat along world +Z: "
+                        f"offset_m={self._retreat_after_place_offset_m:.4f}, "
+                        + _pose_log_text("tcp_target", pose)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    return False, f"failed to compute post-place retreat pose: {exc}"
             elif task_type == "PLACE_LIFT":
                 try:
                     pose = self._current_tcp_pose_world(arm_name)

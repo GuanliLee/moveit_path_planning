@@ -126,6 +126,10 @@ grasp_bridge_state_machine:
     place_lift_height_m: 0.0
     place_descend_before_place: true
     place_descend_offset_m: 0.08
+    # After PLACE opens the gripper, move back along the vertical placement
+    # path by 5 cm before returning to the fixed photo-position joints.
+    retreat_after_place: true
+    retreat_after_place_offset_m: 0.05
     grasp_z_offset_m: 0.0
     grasp_orientation_mode: remote
     pick_grasp_orientation_mode: capture_tcp

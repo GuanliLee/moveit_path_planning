@@ -16,6 +16,7 @@ from grasp_bridge_state_machine import (
     _elevated_place_waypoint,
     _is_no_ik_failure,
     _matrix_from_pose,
+    _place_completion_steps,
     _pose_with_local_orientation_offset,
     _return_home_step,
     _validated_ik_fallback_degrees,
@@ -44,6 +45,7 @@ def test_place_transport_orients_before_horizontal_motion() -> None:
         ("OPEN", "MOVE"),
         ("PRE_GRASP", "MOVE"),
         ("GRASP_APPROACH", "MOVE"),
+        ("RETREAT_AFTER_PLACE", "MOVE"),
         ("LIFT_AFTER_GRASP", "LIFT"),
         ("PLACE_LIFT", "LIFT"),
         ("GRASP", "GRASP"),
@@ -70,6 +72,29 @@ def test_return_home_step_has_no_gripper_command() -> None:
     assert pose is initial_pose
     assert not gripper_command
     assert gripper_opening == 0.0
+
+
+def test_place_completion_retreats_before_returning_to_photo_position() -> None:
+    final_place_pose = PoseStamped()
+    final_place_pose.header.frame_id = "world"
+    photo_pose = PoseStamped()
+    photo_pose.header.frame_id = "world"
+
+    steps = _place_completion_steps(
+        final_place_pose,
+        0.08,
+        retreat_after_place=True,
+        return_home_pose=photo_pose,
+    )
+
+    assert [step[0] for step in steps] == [
+        "PLACE",
+        "RETREAT_AFTER_PLACE",
+        "RETURN_HOME",
+    ]
+    assert steps[0] == ("PLACE", final_place_pose, True, 0.08)
+    assert steps[1] == ("RETREAT_AFTER_PLACE", None, False, 0.0)
+    assert steps[2] == ("RETURN_HOME", photo_pose, False, 0.0)
 
 
 def test_restock_right_capture_selects_configured_six_axis_target() -> None:
@@ -254,6 +279,8 @@ def test_right_arm_config_uses_six_centimeter_pregrasp_and_retreat() -> None:
     assert parameters["place_lift_before_place"] is False
     assert parameters["place_lift_height_m"] == pytest.approx(0.0)
     assert parameters["place_descend_offset_m"] == pytest.approx(0.08)
+    assert parameters["retreat_after_place"] is True
+    assert parameters["retreat_after_place_offset_m"] == pytest.approx(0.05)
     assert parameters["planning_retry_attempts"] == 2
     assert parameters["joint_plan_service_name"] == "/plan_to_joints"
     assert parameters["right_capture_joint_enabled"] is True

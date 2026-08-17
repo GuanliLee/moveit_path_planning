@@ -5,11 +5,13 @@ import pytest
 import yaml
 
 from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import JointState
 
 from grasp_bridge_state_machine import (
     GraspBridgeStateMachine,
     _PLACE_ORIENTATION_TARGET_STEPS,
     _PLACE_TRANSPORT_STEP_ORDER,
+    _arm_joint_positions_from_state,
     _bridge_task_type_for_step,
     _build_ik_orientation_candidates,
     _candidate_indexes_for_step,
@@ -17,17 +19,27 @@ from grasp_bridge_state_machine import (
     _elevated_place_waypoint,
     _is_no_ik_failure,
     _matrix_from_pose,
+    _object_upright_tilt_degrees,
     _place_completion_steps,
     _place_pose_with_grasp_orientation_compensation,
+    _place_pose_with_upright_axis_compensation,
     _pose_with_local_orientation_offset,
     _return_home_step,
+    _rotation_aligning_vectors,
+    _upright_object_axis_in_tcp,
     _validated_ik_fallback_degrees,
 )
 
 
 @pytest.mark.parametrize(
     "step",
-    ("RETREAT_AFTER_GRASP", "PLACE_WAYPOINT", "PLACE_XY", "PLACE_ORIENT"),
+    (
+        "RETREAT_AFTER_GRASP",
+        "PLACE_WAYPOINT",
+        "PLACE_XY",
+        "PLACE_ORIENT",
+        "PLACE_APPROACH",
+    ),
 )
 def test_place_transport_steps_keep_attached_grasp_geometry(step: str) -> None:
     assert _bridge_task_type_for_step(step) == "CARRY"
@@ -45,6 +57,7 @@ def test_all_explicit_place_orientation_targets_receive_grasp_delta() -> None:
     assert _PLACE_ORIENTATION_TARGET_STEPS == {
         "PLACE_ORIENT",
         "PLACE_WAYPOINT",
+        "PLACE_APPROACH",
         "PLACE",
     }
 
@@ -93,18 +106,37 @@ def test_place_completion_retreats_before_returning_to_photo_position() -> None:
     steps = _place_completion_steps(
         final_place_pose,
         0.08,
+        verify_upright_before_release=True,
         retreat_after_place=True,
         return_home_pose=photo_pose,
     )
 
     assert [step[0] for step in steps] == [
+        "PLACE_APPROACH",
+        "VERIFY_PLACE_UPRIGHT",
         "PLACE",
         "RETREAT_AFTER_PLACE",
         "RETURN_HOME",
     ]
-    assert steps[0] == ("PLACE", final_place_pose, True, 0.08)
-    assert steps[1] == ("RETREAT_AFTER_PLACE", None, False, 0.0)
-    assert steps[2] == ("RETURN_HOME", photo_pose, False, 0.0)
+    assert steps[0] == ("PLACE_APPROACH", final_place_pose, False, 0.0)
+    assert steps[1] == ("VERIFY_PLACE_UPRIGHT", None, False, 0.0)
+    assert steps[2] == ("PLACE", final_place_pose, True, 0.08)
+    assert steps[3] == ("RETREAT_AFTER_PLACE", None, False, 0.0)
+    assert steps[4] == ("RETURN_HOME", photo_pose, False, 0.0)
+
+
+def test_place_completion_can_preserve_legacy_direct_release() -> None:
+    final_place_pose = PoseStamped()
+
+    steps = _place_completion_steps(
+        final_place_pose,
+        0.08,
+        verify_upright_before_release=False,
+        retreat_after_place=False,
+        return_home_pose=None,
+    )
+
+    assert steps == [("PLACE", final_place_pose, True, 0.08)]
 
 
 def test_restock_right_capture_selects_configured_six_axis_target() -> None:
@@ -120,6 +152,34 @@ def test_restock_right_capture_selects_configured_six_axis_target() -> None:
     assert _capture_joint_target_for_profile(
         "pick", "right", restock, pick
     ) is None
+
+
+def test_guarded_release_extracts_live_six_axis_joint_target() -> None:
+    joint_state = JointState()
+    joint_state.name = [
+        "right_joint4",
+        "left_joint1",
+        "right_joint1",
+        "right_joint6",
+        "right_joint2",
+        "right_joint5",
+        "right_joint3",
+        "right_joint7",
+    ]
+    joint_state.position = [0.4, -1.0, 0.1, 0.6, 0.2, 0.5, 0.3, 0.08]
+
+    assert _arm_joint_positions_from_state(joint_state, "right") == pytest.approx(
+        (0.1, 0.2, 0.3, 0.4, 0.5, 0.6)
+    )
+
+
+def test_guarded_release_rejects_incomplete_joint_state() -> None:
+    joint_state = JointState()
+    joint_state.name = ["right_joint1"]
+    joint_state.position = [0.1]
+
+    with pytest.raises(RuntimeError, match="joint_state_missing:right_joint2"):
+        _arm_joint_positions_from_state(joint_state, "right")
 
 
 def test_place_waypoint_is_eight_centimeters_above_final_pose() -> None:
@@ -278,7 +338,98 @@ def test_place_compensation_restores_nominal_object_transform(
     assert compensated_object_at_place == pytest.approx(nominal_object_at_place)
 
 
-def test_place_orientation_compensation_is_enabled_for_right_arm_flow() -> None:
+def _pose_with_quaternion(quaternion: tuple[float, float, float, float]) -> PoseStamped:
+    pose = PoseStamped()
+    pose.header.frame_id = "world"
+    pose.pose.position.x = 0.52
+    pose.pose.position.y = 0.08
+    pose.pose.position.z = 0.30
+    pose.pose.orientation.x = quaternion[0]
+    pose.pose.orientation.y = quaternion[1]
+    pose.pose.orientation.z = quaternion[2]
+    pose.pose.orientation.w = quaternion[3]
+    return pose
+
+
+def test_upright_compensation_corrects_latest_original_grasp_case() -> None:
+    actual_grasp_tcp = _pose_with_quaternion(
+        (-0.3493, 0.7510, 0.2134, 0.5180)
+    )
+    nominal_place = _pose_with_quaternion(
+        (-0.1124, 0.6526, 0.1734, 0.7290)
+    )
+    object_axis_tcp = _upright_object_axis_in_tcp(actual_grasp_tcp)
+
+    compensated_place, correction_degrees = (
+        _place_pose_with_upright_axis_compensation(
+            nominal_place,
+            object_axis_tcp,
+        )
+    )
+
+    assert _object_upright_tilt_degrees(
+        nominal_place,
+        object_axis_tcp,
+    ) == pytest.approx(29.54, abs=0.05)
+    assert correction_degrees == pytest.approx(29.54, abs=0.05)
+    assert _object_upright_tilt_degrees(
+        compensated_place,
+        object_axis_tcp,
+    ) == pytest.approx(0.0, abs=1e-6)
+    assert compensated_place.pose.position == nominal_place.pose.position
+
+    nominal_rotation = _matrix_from_pose(nominal_place)[:3, :3]
+    compensated_rotation = _matrix_from_pose(compensated_place)[:3, :3]
+    world_correction = compensated_rotation @ nominal_rotation.T
+    # The full basis is transformed, including the TCP opening direction Y.
+    assert compensated_rotation[:, 1] == pytest.approx(
+        world_correction @ nominal_rotation[:, 1]
+    )
+    assert not np.allclose(compensated_rotation[:, 1], nominal_rotation[:, 1])
+
+
+@pytest.mark.parametrize(
+    ("local_axis", "degrees"),
+    (("y", 0.0), ("y", 5.0), ("z", -5.0)),
+)
+def test_upright_compensation_levels_original_and_fallback_grasps(
+    local_axis: str,
+    degrees: float,
+) -> None:
+    actual_grasp_tcp = _arbitrary_grasp_pose()
+    if degrees:
+        actual_grasp_tcp = _pose_with_local_orientation_offset(
+            actual_grasp_tcp,
+            local_axis,
+            degrees,
+        )
+    nominal_place = _pose_with_quaternion(
+        (0.0163, 0.7252, -0.0906, 0.6824)
+    )
+    object_axis_tcp = _upright_object_axis_in_tcp(actual_grasp_tcp)
+
+    compensated_place, _ = _place_pose_with_upright_axis_compensation(
+        nominal_place,
+        object_axis_tcp,
+    )
+
+    assert _object_upright_tilt_degrees(
+        compensated_place,
+        object_axis_tcp,
+    ) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_vector_alignment_handles_opposite_vertical_axes() -> None:
+    rotation = _rotation_aligning_vectors([0.0, 0.0, -1.0], [0.0, 0.0, 1.0])
+
+    assert rotation @ np.asarray([0.0, 0.0, -1.0]) == pytest.approx(
+        [0.0, 0.0, 1.0]
+    )
+    assert rotation @ rotation.T == pytest.approx(np.eye(3))
+    assert np.linalg.det(rotation) == pytest.approx(1.0)
+
+
+def test_upright_place_compensation_is_enabled_for_right_grasp_flow() -> None:
     config_path = (
         Path(__file__).resolve().parents[1]
         / "config"
@@ -289,6 +440,10 @@ def test_place_orientation_compensation_is_enabled_for_right_arm_flow() -> None:
     ]["ros__parameters"]
 
     assert parameters["compensate_place_orientation_from_grasp_delta"] is True
+    assert parameters["place_upright_axis_compensation_enabled"] is True
+    assert parameters["place_upright_axis_compensation_profiles"] == ["grasp"]
+    assert parameters["place_upright_axis_compensation_arms"] == ["right"]
+    assert parameters["place_upright_tilt_limit_deg"] == pytest.approx(2.0)
 
 
 def test_ik_fallback_candidate_order_is_original_then_y_then_z() -> None:

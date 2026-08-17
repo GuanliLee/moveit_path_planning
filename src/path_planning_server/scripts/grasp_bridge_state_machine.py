@@ -47,13 +47,19 @@ Quaternion = Tuple[float, float, float, float]
 
 
 _CARRYING_BRIDGE_STEPS = frozenset(
-    {"RETREAT_AFTER_GRASP", "PLACE_WAYPOINT", "PLACE_XY", "PLACE_ORIENT"}
+    {
+        "RETREAT_AFTER_GRASP",
+        "PLACE_WAYPOINT",
+        "PLACE_XY",
+        "PLACE_ORIENT",
+        "PLACE_APPROACH",
+    }
 )
 
 _PLACE_TRANSPORT_STEP_ORDER = ("PLACE_LIFT", "PLACE_ORIENT", "PLACE_XY")
 
 _PLACE_ORIENTATION_TARGET_STEPS = frozenset(
-    {"PLACE_ORIENT", "PLACE_WAYPOINT", "PLACE"}
+    {"PLACE_ORIENT", "PLACE_WAYPOINT", "PLACE_APPROACH", "PLACE"}
 )
 
 _GRASP_CANDIDATE_STEPS = frozenset(
@@ -89,13 +95,22 @@ def _place_completion_steps(
     final_place_pose: PoseStamped,
     open_width: float,
     *,
+    verify_upright_before_release: bool,
     retreat_after_place: bool,
     return_home_pose: Optional[PoseStamped],
 ) -> list[Tuple[str, Optional[PoseStamped], bool, float]]:
-    """Order release, post-place retreat, then the optional photo-position return."""
-    steps: list[Tuple[str, Optional[PoseStamped], bool, float]] = [
-        ("PLACE", final_place_pose, True, float(open_width))
-    ]
+    """Order guarded release, retreat, then the optional photo-position return."""
+    steps: list[Tuple[str, Optional[PoseStamped], bool, float]] = []
+    if verify_upright_before_release:
+        # Reach the final pose while still holding the object, then verify the
+        # live TCP orientation before a separate PLACE request opens the hand.
+        steps.extend(
+            [
+                ("PLACE_APPROACH", final_place_pose, False, 0.0),
+                ("VERIFY_PLACE_UPRIGHT", None, False, 0.0),
+            ]
+        )
+    steps.append(("PLACE", final_place_pose, True, float(open_width)))
     if retreat_after_place:
         steps.append(("RETREAT_AFTER_PLACE", None, False, 0.0))
     if return_home_pose is not None:
@@ -112,6 +127,30 @@ def _capture_joint_target_for_profile(
     targets = pick_capture_targets if task_profile == "pick" else capture_targets
     target = targets.get(arm_name)
     return tuple(target) if target is not None else None
+
+
+def _arm_joint_positions_from_state(
+    joint_state: JointState,
+    arm_name: str,
+) -> Tuple[float, ...]:
+    """Extract the six planning joints for one arm from a combined JointState."""
+    arm = arm_name.strip().lower()
+    if arm not in ("left", "right"):
+        raise ValueError(f"arm_name must be left or right, got {arm_name!r}")
+    indices = {name: index for index, name in enumerate(joint_state.name)}
+    positions = []
+    for joint_index in range(1, 7):
+        joint_name = f"{arm}_joint{joint_index}"
+        if joint_name not in indices:
+            raise RuntimeError(f"joint_state_missing:{joint_name}")
+        message_index = indices[joint_name]
+        if message_index >= len(joint_state.position):
+            raise RuntimeError(f"joint_state_position_missing:{joint_name}")
+        value = float(joint_state.position[message_index])
+        if not math.isfinite(value):
+            raise RuntimeError(f"joint_state_non_finite:{joint_name}")
+        positions.append(value)
+    return tuple(positions)
 
 
 def _elevated_place_waypoint(
@@ -469,6 +508,110 @@ def _place_pose_with_grasp_orientation_compensation(
     output = _pose_from_matrix(place_pose.header.frame_id, compensated_place)
     output.header.stamp = place_pose.header.stamp
     return output
+
+
+def _normalized_axis(axis: Iterable[float], label: str) -> np.ndarray:
+    """Return a finite unit-length three-vector."""
+    vector = np.asarray(tuple(float(value) for value in axis), dtype=np.float64)
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
+        raise ValueError(f"{label} must be a finite three-vector")
+    norm = float(np.linalg.norm(vector))
+    if norm < 1e-9:
+        raise ValueError(f"{label} must not be zero")
+    return vector / norm
+
+
+def _rotation_aligning_vectors(
+    source_axis: Iterable[float],
+    target_axis: Iterable[float],
+) -> np.ndarray:
+    """Return the minimum-angle rotation that maps source_axis to target_axis."""
+    source = _normalized_axis(source_axis, "source_axis")
+    target = _normalized_axis(target_axis, "target_axis")
+    cosine = float(np.clip(np.dot(source, target), -1.0, 1.0))
+    cross = np.cross(source, target)
+    sine = float(np.linalg.norm(cross))
+    if sine < 1e-9:
+        if cosine > 0.0:
+            return np.eye(3, dtype=np.float64)
+        # The 180-degree case has infinitely many valid axes. Pick the basis
+        # least aligned with source to keep the result deterministic and stable.
+        basis = np.zeros(3, dtype=np.float64)
+        basis[int(np.argmin(np.abs(source)))] = 1.0
+        rotation_axis = _normalized_axis(
+            np.cross(source, basis),
+            "opposite_axis_rotation",
+        )
+        return -np.eye(3, dtype=np.float64) + 2.0 * np.outer(
+            rotation_axis,
+            rotation_axis,
+        )
+
+    rotation_axis = cross / sine
+    x, y, z = rotation_axis
+    skew = np.asarray(
+        [
+            [0.0, -z, y],
+            [z, 0.0, -x],
+            [-y, x, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    return (
+        np.eye(3, dtype=np.float64)
+        + skew * sine
+        + (skew @ skew) * (1.0 - cosine)
+    )
+
+
+def _upright_object_axis_in_tcp(grasp_tcp_pose: PoseStamped) -> np.ndarray:
+    """Infer the held object's upward axis in TCP coordinates at grasp time."""
+    world_up = np.asarray([0.0, 0.0, 1.0], dtype=np.float64)
+    grasp_rotation = _matrix_from_pose(grasp_tcp_pose)[:3, :3]
+    return _normalized_axis(
+        grasp_rotation.T @ world_up,
+        "object_axis_tcp",
+    )
+
+
+def _object_upright_tilt_degrees(
+    tcp_pose: PoseStamped,
+    object_axis_tcp: Iterable[float],
+) -> float:
+    """Return the directed held-object tilt from world +Z in degrees."""
+    axis_tcp = _normalized_axis(object_axis_tcp, "object_axis_tcp")
+    axis_world = _normalized_axis(
+        _matrix_from_pose(tcp_pose)[:3, :3] @ axis_tcp,
+        "object_axis_world",
+    )
+    cosine = float(np.clip(axis_world[2], -1.0, 1.0))
+    return math.degrees(math.acos(cosine))
+
+
+def _place_pose_with_upright_axis_compensation(
+    place_pose: PoseStamped,
+    object_axis_tcp: Iterable[float],
+) -> Tuple[PoseStamped, float]:
+    """Rotate the full place orientation so the held object's axis is world +Z."""
+    axis_tcp = _normalized_axis(object_axis_tcp, "object_axis_tcp")
+    nominal_place = _matrix_from_pose(place_pose)
+    predicted_axis_world = _normalized_axis(
+        nominal_place[:3, :3] @ axis_tcp,
+        "predicted_object_axis_world",
+    )
+    world_up = np.asarray([0.0, 0.0, 1.0], dtype=np.float64)
+    correction_degrees = math.degrees(
+        math.acos(float(np.clip(np.dot(predicted_axis_world, world_up), -1.0, 1.0)))
+    )
+    level_rotation = _rotation_aligning_vectors(predicted_axis_world, world_up)
+
+    compensated_place = nominal_place.copy()
+    # Left multiplication is a world-frame correction. It rotates the complete
+    # gripper basis, including its opening direction, while leaving XYZ fixed.
+    compensated_place[:3, :3] = level_rotation @ nominal_place[:3, :3]
+    output = _pose_from_matrix(place_pose.header.frame_id, compensated_place)
+    output.header.stamp = place_pose.header.stamp
+    return output, correction_degrees
 
 
 def _build_ik_orientation_candidates(
@@ -864,6 +1007,68 @@ class GraspBridgeStateMachine(Node):
                 False,
             ).value
         )
+        self._place_upright_axis_compensation_enabled = bool(
+            self.declare_parameter(
+                "place_upright_axis_compensation_enabled",
+                False,
+            ).value
+        )
+        self._place_upright_axis_compensation_profiles = frozenset(
+            str(value).strip().lower()
+            for value in self.declare_parameter(
+                "place_upright_axis_compensation_profiles",
+                ["grasp"],
+            ).value
+            if str(value).strip()
+        )
+        unsupported_upright_profiles = (
+            self._place_upright_axis_compensation_profiles.difference(
+                {"grasp", "pick"}
+            )
+        )
+        if unsupported_upright_profiles:
+            raise ValueError(
+                "place_upright_axis_compensation_profiles only supports grasp "
+                f"and pick; got {sorted(unsupported_upright_profiles)}"
+            )
+        self._place_upright_axis_compensation_arms = frozenset(
+            str(value).strip().lower()
+            for value in self.declare_parameter(
+                "place_upright_axis_compensation_arms",
+                ["right"],
+            ).value
+            if str(value).strip()
+        )
+        unsupported_upright_arms = (
+            self._place_upright_axis_compensation_arms.difference(
+                {"left", "right"}
+            )
+        )
+        if unsupported_upright_arms:
+            raise ValueError(
+                "place_upright_axis_compensation_arms only supports left and "
+                f"right; got {sorted(unsupported_upright_arms)}"
+            )
+        if self._place_upright_axis_compensation_enabled and (
+            not self._place_upright_axis_compensation_profiles
+            or not self._place_upright_axis_compensation_arms
+        ):
+            raise ValueError(
+                "upright place compensation requires at least one profile and arm"
+            )
+        self._place_upright_tilt_limit_deg = float(
+            self.declare_parameter(
+                "place_upright_tilt_limit_deg",
+                2.0,
+            ).value
+        )
+        if (
+            not math.isfinite(self._place_upright_tilt_limit_deg)
+            or not 0.0 < self._place_upright_tilt_limit_deg <= 90.0
+        ):
+            raise ValueError(
+                "place_upright_tilt_limit_deg must be finite and in (0, 90]"
+            )
         self._grasp_ik_fallback_profiles = frozenset(
             str(value).strip().lower()
             for value in self.declare_parameter(
@@ -1188,6 +1393,11 @@ class GraspBridgeStateMachine(Node):
             f"world_z_offset_m={self._retreat_after_place_offset_m:.4f}), "
             f"place_orientation_grasp_delta_compensation="
             f"{self._compensate_place_orientation_from_grasp_delta}, "
+            f"place_upright_axis_compensation=(enabled="
+            f"{self._place_upright_axis_compensation_enabled}, "
+            f"profiles={sorted(self._place_upright_axis_compensation_profiles)}, "
+            f"arms={sorted(self._place_upright_axis_compensation_arms)}, "
+            f"release_tilt_limit_deg={self._place_upright_tilt_limit_deg:.2f}), "
             f"ik_orientation_fallback=(enabled={self._grasp_ik_fallback_enabled}, "
             f"profiles={sorted(self._grasp_ik_fallback_profiles)}, "
             f"local_y_deg={list(self._grasp_ik_fallback_local_y_degrees)}, "
@@ -1312,6 +1522,13 @@ class GraspBridgeStateMachine(Node):
     def _store_joint_state(self, msg: JointState) -> None:
         with self._latest_lock:
             self._latest_joint_state = msg
+
+    def _current_arm_joint_positions(self, arm_name: str) -> Tuple[float, ...]:
+        with self._latest_lock:
+            joint_state = self._latest_joint_state
+        if joint_state is None:
+            raise RuntimeError("joint_states_unavailable")
+        return _arm_joint_positions_from_state(joint_state, arm_name)
 
     def _make_configured_place_pose(self) -> PoseStamped:
         pose = PoseStamped()
@@ -1531,11 +1748,17 @@ class GraspBridgeStateMachine(Node):
             place_pose = self._configured_pick_place_pose
         else:
             place_pose = self._configured_place_pose
+        upright_place_active = (
+            self._place_upright_axis_compensation_enabled
+            and task_profile in self._place_upright_axis_compensation_profiles
+            and arm_name in self._place_upright_axis_compensation_arms
+        )
 
         self.get_logger().info(
             "[TIMING] state_machine phase=task_start "
             f"profile={task_profile} target={target_name!r} arm={arm_name} "
-            f"scene_id={scene_id} camera_frame={camera_frame}"
+            f"scene_id={scene_id} camera_frame={camera_frame} "
+            f"upright_place_active={upright_place_active}"
         )
         self._clear_target_markers(arm_name)
 
@@ -1919,6 +2142,7 @@ class GraspBridgeStateMachine(Node):
             _place_completion_steps(
                 final_place_pose,
                 open_width,
+                verify_upright_before_release=upright_place_active,
                 retreat_after_place=(
                     self._retreat_after_place
                     and self._retreat_after_place_offset_m > 0.0
@@ -1928,7 +2152,46 @@ class GraspBridgeStateMachine(Node):
         )
 
         selected_grasp_candidate_index: Optional[int] = None
+        grasped_object_axis_tcp: Optional[np.ndarray] = None
         for index, (task_type, pose, gripper_command, gripper_opening) in enumerate(steps, start=1):
+            if task_type == "VERIFY_PLACE_UPRIGHT":
+                if grasped_object_axis_tcp is None:
+                    return False, (
+                        "cannot verify place uprightness without the post-grasp "
+                        "object axis"
+                    )
+                try:
+                    actual_place_tcp = self._current_tcp_pose_world(arm_name)
+                    actual_tilt_degrees = _object_upright_tilt_degrees(
+                        actual_place_tcp,
+                        grasped_object_axis_tcp,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    return False, f"failed to verify place uprightness: {exc}"
+                self.get_logger().info(
+                    "Verified held-object axis before release: "
+                    f"tilt_deg={actual_tilt_degrees:.3f}, "
+                    f"limit_deg={self._place_upright_tilt_limit_deg:.3f}; "
+                    + _pose_log_text("actual_place_tcp", actual_place_tcp)
+                )
+                if actual_tilt_degrees > self._place_upright_tilt_limit_deg:
+                    detail = (
+                        "place uprightness check failed while gripper remains closed: "
+                        f"tilt={actual_tilt_degrees:.3f} deg exceeds "
+                        f"{self._place_upright_tilt_limit_deg:.3f} deg"
+                    )
+                    self._publish_target_markers(
+                        arm_name,
+                        target_name,
+                        marker_grasp_pose,
+                        marker_pre_grasp_pose,
+                        "failed",
+                        detail,
+                    )
+                    self.get_logger().error(detail)
+                    return False, detail
+                continue
+
             if task_type == "LIFT_AFTER_GRASP":
                 try:
                     pose = self._current_tcp_pose_world(arm_name)
@@ -1982,7 +2245,40 @@ class GraspBridgeStateMachine(Node):
                     return False, f"failed to compute place orientation pose: {exc}"
 
             if (
+                upright_place_active
+                and task_type in _PLACE_ORIENTATION_TARGET_STEPS
+                and task_type != "PLACE"
+            ):
+                if grasped_object_axis_tcp is None:
+                    return False, (
+                        f"cannot compensate {task_type} before the post-grasp "
+                        "object axis is available"
+                    )
+                assert pose is not None
+                nominal_place_pose = pose
+                try:
+                    nominal_place_world = self._pose_to_world(nominal_place_pose)
+                    pose, correction_degrees = (
+                        _place_pose_with_upright_axis_compensation(
+                            nominal_place_world,
+                            grasped_object_axis_tcp,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    return False, (
+                        f"failed to compensate {task_type} for an upright object: "
+                        f"{exc}"
+                    )
+                self.get_logger().info(
+                    "Applied held-object world +Z correction to place orientation: "
+                    f"step={task_type}, correction_deg={correction_degrees:.3f}; "
+                    + _pose_log_text("nominal_place_tcp", nominal_place_world)
+                    + "; "
+                    + _pose_log_text("upright_place_tcp", pose)
+                )
+            elif (
                 self._compensate_place_orientation_from_grasp_delta
+                and not upright_place_active
                 and ik_fallback_active
                 and task_type in _PLACE_ORIENTATION_TARGET_STEPS
                 and selected_grasp_candidate_index is not None
@@ -2013,6 +2309,63 @@ class GraspBridgeStateMachine(Node):
                     + "; "
                     + _pose_log_text("compensated_place_tcp", pose)
                 )
+
+            if task_type == "PLACE" and upright_place_active:
+                # PLACE_APPROACH already reached and verified the final TCP.
+                # Use the joint service's explicit "target already reached"
+                # path so the hand can open without requiring a zero-length
+                # pose trajectory from MoveIt.
+                try:
+                    release_joint_positions = self._current_arm_joint_positions(
+                        arm_name
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    return False, f"failed to read joints for guarded release: {exc}"
+                success = False
+                last_detail = ""
+                for attempt in range(1, self._planning_retry_attempts + 1):
+                    self.get_logger().info(
+                        f"Starting guarded release step {index}/{len(steps)}: "
+                        f"attempt {attempt}/{self._planning_retry_attempts}, "
+                        f"arm={arm_name} joints_rad={list(release_joint_positions)}"
+                    )
+                    phase_started = time.monotonic()
+                    success, detail = self._call_joint_plan(
+                        arm_name=arm_name,
+                        scene_id=scene_id,
+                        joint_positions=release_joint_positions,
+                        keep_grasp_ellipsoid=True,
+                        gripper_command=True,
+                        gripper_opening_m=gripper_opening,
+                    )
+                    last_detail = detail
+                    self.get_logger().info(
+                        "[TIMING] state_machine phase=guarded_place_release "
+                        f"step={task_type} index={index}/{len(steps)} "
+                        f"attempt={attempt}/{self._planning_retry_attempts} "
+                        f"success={success} "
+                        f"elapsed_ms={(time.monotonic() - phase_started) * 1000.0:.1f} "
+                        f"detail={detail!r}"
+                    )
+                    if success:
+                        break
+                    if (
+                        _is_planning_failure(detail)
+                        and attempt < self._planning_retry_attempts
+                    ):
+                        continue
+                    break
+                if not success:
+                    self._publish_target_markers(
+                        arm_name,
+                        target_name,
+                        marker_grasp_pose,
+                        marker_pre_grasp_pose,
+                        "failed",
+                        f"guarded {task_type}: {last_detail}",
+                    )
+                    return False, f"guarded {task_type} failed: {last_detail}"
+                continue
 
             if task_type == "RETURN_HOME" and initial_joint_positions is not None:
                 success = False
@@ -2189,6 +2542,22 @@ class GraspBridgeStateMachine(Node):
                     f"{task_type}: {last_detail}",
                 )
                 return False, f"{task_type} failed: {last_detail}"
+            if task_type == "GRASP" and upright_place_active:
+                try:
+                    actual_grasp_tcp = self._current_tcp_pose_world(arm_name)
+                    grasped_object_axis_tcp = _upright_object_axis_in_tcp(
+                        actual_grasp_tcp
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    return False, (
+                        "grasp succeeded but failed to record the live TCP for "
+                        f"upright placement: {exc}"
+                    )
+                self.get_logger().info(
+                    "Recorded upright object axis from live post-grasp TCP: "
+                    f"axis_tcp={grasped_object_axis_tcp.tolist()}; "
+                    + _pose_log_text("actual_grasp_tcp", actual_grasp_tcp)
+                )
             if task_type == "GRASP_APPROACH" and self._pre_close_snapshot_enabled:
                 if self._pre_close_snapshot_settle_s > 0.0:
                     if not self._sleep_interruptibly(self._pre_close_snapshot_settle_s):

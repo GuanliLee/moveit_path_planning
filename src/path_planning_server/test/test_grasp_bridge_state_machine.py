@@ -31,6 +31,7 @@ from grasp_bridge_state_machine import (
     _upright_target_is_selected,
     _upright_object_axis_in_tcp,
     _validated_ik_fallback_degrees,
+    _world_negative_x_retreat_pose,
 )
 
 
@@ -206,6 +207,27 @@ def test_restock_final_pose_is_raised_two_centimeters_before_waypoint() -> None:
     assert waypoint.pose.position.y == pytest.approx(final_pose.pose.position.y)
     assert waypoint.pose.position.z == pytest.approx(0.40619623218684643)
     assert waypoint.pose.orientation == final_pose.pose.orientation
+
+
+def test_post_place_retreat_moves_eight_centimeters_along_world_negative_x() -> None:
+    current_pose = PoseStamped()
+    current_pose.header.frame_id = "world"
+    current_pose.pose.position.x = 0.520677872605286
+    current_pose.pose.position.y = 0.076696553529590
+    current_pose.pose.position.z = 0.301053788167778
+    current_pose.pose.orientation.x = 0.016259139819811
+    current_pose.pose.orientation.y = 0.725175006149608
+    current_pose.pose.orientation.z = -0.090586573306525
+    current_pose.pose.orientation.w = 0.682386198252000
+
+    retreat = _world_negative_x_retreat_pose(current_pose, 0.08)
+
+    assert current_pose.pose.position.x == pytest.approx(0.520677872605286)
+    assert retreat.header.frame_id == "world"
+    assert retreat.pose.position.x == pytest.approx(0.440677872605286)
+    assert retreat.pose.position.y == pytest.approx(current_pose.pose.position.y)
+    assert retreat.pose.position.z == pytest.approx(current_pose.pose.position.z)
+    assert retreat.pose.orientation == current_pose.pose.orientation
 
 
 class _NullLogger:
@@ -551,7 +573,7 @@ def test_right_arm_config_uses_six_centimeter_pregrasp_and_retreat() -> None:
     assert parameters["restock_place_final_z_offset_m"] == pytest.approx(0.02)
     assert parameters["place_descend_offset_m"] == pytest.approx(0.08)
     assert parameters["retreat_after_place"] is True
-    assert parameters["retreat_after_place_offset_m"] == pytest.approx(0.05)
+    assert parameters["retreat_after_place_offset_m"] == pytest.approx(0.08)
     assert parameters["planning_retry_attempts"] == 2
     assert parameters["joint_plan_service_name"] == "/plan_to_joints"
     assert parameters["right_capture_joint_enabled"] is True

@@ -170,6 +170,23 @@ def _elevated_place_waypoint(
     return waypoint
 
 
+def _world_negative_x_retreat_pose(
+    current_tcp_pose: PoseStamped,
+    offset_m: float,
+) -> PoseStamped:
+    """Copy the current TCP pose and retreat along world -X only."""
+    retreat = PoseStamped()
+    retreat.header = current_tcp_pose.header
+    retreat.pose.position.x = current_tcp_pose.pose.position.x - float(offset_m)
+    retreat.pose.position.y = current_tcp_pose.pose.position.y
+    retreat.pose.position.z = current_tcp_pose.pose.position.z
+    retreat.pose.orientation.x = current_tcp_pose.pose.orientation.x
+    retreat.pose.orientation.y = current_tcp_pose.pose.orientation.y
+    retreat.pose.orientation.z = current_tcp_pose.pose.orientation.z
+    retreat.pose.orientation.w = current_tcp_pose.pose.orientation.w
+    return retreat
+
+
 @dataclass(frozen=True)
 class RemoteGrasp:
     arm_name: str
@@ -1026,7 +1043,7 @@ class GraspBridgeStateMachine(Node):
         )
         self._retreat_after_place_offset_m = max(
             0.0,
-            float(self.declare_parameter("retreat_after_place_offset_m", 0.05).value),
+            float(self.declare_parameter("retreat_after_place_offset_m", 0.08).value),
         )
         self._grasp_z_offset_m = float(self.declare_parameter("grasp_z_offset_m", 0.0).value)
         self._grasp_orientation_mode = str(
@@ -1460,7 +1477,7 @@ class GraspBridgeStateMachine(Node):
             f"retreat_after_grasp=({self._retreat_after_grasp}, "
             f"offset_m={self._retreat_after_grasp_offset_m:.4f}), "
             f"retreat_after_place=({self._retreat_after_place}, "
-            f"world_z_offset_m={self._retreat_after_place_offset_m:.4f}), "
+            f"world_minus_x_offset_m={self._retreat_after_place_offset_m:.4f}), "
             f"place_orientation_grasp_delta_compensation="
             f"{self._compensate_place_orientation_from_grasp_delta}, "
             f"place_upright_axis_compensation=(enabled="
@@ -2319,12 +2336,12 @@ class GraspBridgeStateMachine(Node):
                     return False, f"failed to compute lift pose: {exc}"
             elif task_type == "RETREAT_AFTER_PLACE":
                 try:
-                    pose = _elevated_place_waypoint(
+                    pose = _world_negative_x_retreat_pose(
                         self._current_tcp_pose_world(arm_name),
                         self._retreat_after_place_offset_m,
                     )
                     self.get_logger().info(
-                        "Computed post-place retreat along world +Z: "
+                        "Computed post-place retreat along world -X: "
                         f"offset_m={self._retreat_after_place_offset_m:.4f}, "
                         + _pose_log_text("tcp_target", pose)
                     )

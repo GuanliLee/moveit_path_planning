@@ -52,6 +52,10 @@ _CARRYING_BRIDGE_STEPS = frozenset(
 
 _PLACE_TRANSPORT_STEP_ORDER = ("PLACE_LIFT", "PLACE_ORIENT", "PLACE_XY")
 
+_PLACE_ORIENTATION_TARGET_STEPS = frozenset(
+    {"PLACE_ORIENT", "PLACE_WAYPOINT", "PLACE"}
+)
+
 _GRASP_CANDIDATE_STEPS = frozenset(
     {"PRE_GRASP", "GRASP_APPROACH", "GRASP", "RETREAT_AFTER_GRASP"}
 )
@@ -434,6 +438,36 @@ def _pose_with_local_orientation_offset(
     )
     output = _pose_from_matrix(pose.header.frame_id, rotated)
     output.header.stamp = pose.header.stamp
+    return output
+
+
+def _place_pose_with_grasp_orientation_compensation(
+    place_pose: PoseStamped,
+    original_grasp_pose: PoseStamped,
+    selected_grasp_pose: PoseStamped,
+) -> PoseStamped:
+    """Apply the selected-vs-original grasp rotation delta to a place pose."""
+    original_frame = (original_grasp_pose.header.frame_id or "").strip()
+    selected_frame = (selected_grasp_pose.header.frame_id or "").strip()
+    if original_frame != selected_frame:
+        raise ValueError(
+            "original and selected grasp poses must use the same frame; "
+            f"got {original_frame!r} and {selected_frame!r}"
+        )
+
+    original_grasp = _matrix_from_pose(original_grasp_pose)
+    selected_grasp = _matrix_from_pose(selected_grasp_pose)
+    grasp_rotation_delta = (
+        original_grasp[:3, :3].T @ selected_grasp[:3, :3]
+    )
+
+    nominal_place = _matrix_from_pose(place_pose)
+    compensated_place = nominal_place.copy()
+    compensated_place[:3, :3] = (
+        nominal_place[:3, :3] @ grasp_rotation_delta
+    )
+    output = _pose_from_matrix(place_pose.header.frame_id, compensated_place)
+    output.header.stamp = place_pose.header.stamp
     return output
 
 
@@ -824,6 +858,12 @@ class GraspBridgeStateMachine(Node):
         self._grasp_ik_fallback_enabled = bool(
             self.declare_parameter("grasp_ik_fallback_enabled", False).value
         )
+        self._compensate_place_orientation_from_grasp_delta = bool(
+            self.declare_parameter(
+                "compensate_place_orientation_from_grasp_delta",
+                False,
+            ).value
+        )
         self._grasp_ik_fallback_profiles = frozenset(
             str(value).strip().lower()
             for value in self.declare_parameter(
@@ -1146,6 +1186,8 @@ class GraspBridgeStateMachine(Node):
             f"offset_m={self._retreat_after_grasp_offset_m:.4f}), "
             f"retreat_after_place=({self._retreat_after_place}, "
             f"world_z_offset_m={self._retreat_after_place_offset_m:.4f}), "
+            f"place_orientation_grasp_delta_compensation="
+            f"{self._compensate_place_orientation_from_grasp_delta}, "
             f"ik_orientation_fallback=(enabled={self._grasp_ik_fallback_enabled}, "
             f"profiles={sorted(self._grasp_ik_fallback_profiles)}, "
             f"local_y_deg={list(self._grasp_ik_fallback_local_y_degrees)}, "
@@ -1938,6 +1980,39 @@ class GraspBridgeStateMachine(Node):
                     pose.pose.position.z = current_tcp.pose.position.z
                 except Exception as exc:  # noqa: BLE001
                     return False, f"failed to compute place orientation pose: {exc}"
+
+            if (
+                self._compensate_place_orientation_from_grasp_delta
+                and ik_fallback_active
+                and task_type in _PLACE_ORIENTATION_TARGET_STEPS
+                and selected_grasp_candidate_index is not None
+                and selected_grasp_candidate_index > 0
+            ):
+                assert pose is not None
+                selected_candidate = grasp_pose_candidates[
+                    selected_grasp_candidate_index
+                ]
+                nominal_place_pose = pose
+                try:
+                    pose = _place_pose_with_grasp_orientation_compensation(
+                        nominal_place_pose,
+                        grasp_pose_candidates[0].pose,
+                        selected_candidate.pose,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    return False, (
+                        f"failed to compensate {task_type} orientation from "
+                        f"grasp candidate {selected_candidate.name}: {exc}"
+                    )
+                self.get_logger().info(
+                    "Applied selected grasp rotation delta to place orientation: "
+                    f"step={task_type}, candidate={selected_candidate.name}, "
+                    f"local_axis={selected_candidate.local_axis}, "
+                    f"rotation_deg={selected_candidate.rotation_degrees:+.1f}; "
+                    + _pose_log_text("nominal_place_tcp", nominal_place_pose)
+                    + "; "
+                    + _pose_log_text("compensated_place_tcp", pose)
+                )
 
             if task_type == "RETURN_HOME" and initial_joint_positions is not None:
                 success = False

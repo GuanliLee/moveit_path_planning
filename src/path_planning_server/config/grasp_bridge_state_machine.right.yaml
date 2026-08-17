@@ -141,6 +141,10 @@ grasp_bridge_state_machine:
     # the full TCP orientation. The successful candidate is locked through
     # PRE_GRASP, GRASP and RETREAT_AFTER_GRASP.
     grasp_ik_fallback_enabled: true
+    # Copy the selected candidate's signed rotation delta to PLACE_ORIENT,
+    # PLACE_WAYPOINT and PLACE. This preserves the can-to-gripper transform,
+    # while leaving every configured shelf XYZ position unchanged.
+    compensate_place_orientation_from_grasp_delta: true
     grasp_ik_fallback_profiles: [grasp]
     grasp_ik_fallback_local_y_degrees: [3.0, -3.0, 5.0, -5.0, 8.0, -8.0]
     grasp_ik_fallback_local_z_degrees: [3.0, -3.0, 5.0, -5.0]

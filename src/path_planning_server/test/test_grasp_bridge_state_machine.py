@@ -8,6 +8,7 @@ from geometry_msgs.msg import PoseStamped
 
 from grasp_bridge_state_machine import (
     GraspBridgeStateMachine,
+    _PLACE_ORIENTATION_TARGET_STEPS,
     _PLACE_TRANSPORT_STEP_ORDER,
     _bridge_task_type_for_step,
     _build_ik_orientation_candidates,
@@ -17,6 +18,7 @@ from grasp_bridge_state_machine import (
     _is_no_ik_failure,
     _matrix_from_pose,
     _place_completion_steps,
+    _place_pose_with_grasp_orientation_compensation,
     _pose_with_local_orientation_offset,
     _return_home_step,
     _validated_ik_fallback_degrees,
@@ -37,6 +39,14 @@ def test_place_transport_orients_before_horizontal_motion() -> None:
         "PLACE_ORIENT",
         "PLACE_XY",
     )
+
+
+def test_all_explicit_place_orientation_targets_receive_grasp_delta() -> None:
+    assert _PLACE_ORIENTATION_TARGET_STEPS == {
+        "PLACE_ORIENT",
+        "PLACE_WAYPOINT",
+        "PLACE",
+    }
 
 
 @pytest.mark.parametrize(
@@ -215,6 +225,70 @@ def test_local_z_fallback_rotates_opening_axis_with_full_tcp_pose() -> None:
         ]
     )
     assert np.linalg.norm(rotated_quaternion) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ("local_axis", "degrees"),
+    (("y", 5.0), ("z", -3.0)),
+)
+def test_place_compensation_restores_nominal_object_transform(
+    local_axis: str,
+    degrees: float,
+) -> None:
+    original_grasp = _arbitrary_grasp_pose()
+    selected_grasp = _pose_with_local_orientation_offset(
+        original_grasp,
+        local_axis,
+        degrees,
+    )
+    nominal_place = _arbitrary_grasp_pose()
+    nominal_place.pose.position.x = 0.52
+    nominal_place.pose.position.y = 0.08
+    nominal_place.pose.position.z = 0.30
+    place_quaternion = np.asarray(
+        [0.0163, 0.7252, -0.0906, 0.6824],
+        dtype=np.float64,
+    )
+    place_quaternion /= np.linalg.norm(place_quaternion)
+    nominal_place.pose.orientation.x = float(place_quaternion[0])
+    nominal_place.pose.orientation.y = float(place_quaternion[1])
+    nominal_place.pose.orientation.z = float(place_quaternion[2])
+    nominal_place.pose.orientation.w = float(place_quaternion[3])
+
+    compensated_place = _place_pose_with_grasp_orientation_compensation(
+        nominal_place,
+        original_grasp,
+        selected_grasp,
+    )
+
+    object_at_grasp = np.eye(4, dtype=np.float64)
+    object_at_grasp[:3, 3] = np.asarray([0.31, -0.02, 0.08])
+    nominal_object_at_place = (
+        _matrix_from_pose(nominal_place)
+        @ np.linalg.inv(_matrix_from_pose(original_grasp))
+        @ object_at_grasp
+    )
+    compensated_object_at_place = (
+        _matrix_from_pose(compensated_place)
+        @ np.linalg.inv(_matrix_from_pose(selected_grasp))
+        @ object_at_grasp
+    )
+
+    assert compensated_place.pose.position == nominal_place.pose.position
+    assert compensated_object_at_place == pytest.approx(nominal_object_at_place)
+
+
+def test_place_orientation_compensation_is_enabled_for_right_arm_flow() -> None:
+    config_path = (
+        Path(__file__).resolve().parents[1]
+        / "config"
+        / "grasp_bridge_state_machine.right.yaml"
+    )
+    parameters = yaml.safe_load(config_path.read_text(encoding="utf-8"))[
+        "grasp_bridge_state_machine"
+    ]["ros__parameters"]
+
+    assert parameters["compensate_place_orientation_from_grasp_delta"] is True
 
 
 def test_ik_fallback_candidate_order_is_original_then_y_then_z() -> None:

@@ -143,7 +143,7 @@ grasp_bridge_state_machine:
     # the full TCP orientation. The successful candidate is locked through
     # PRE_GRASP, GRASP and RETREAT_AFTER_GRASP.
     grasp_ik_fallback_enabled: true
-    # Keep fallback-only compensation for flows outside the right-arm upright
+    # Keep fallback-only compensation for flows outside the dual-arm upright
     # mode. When both apply, the upright-axis mode below takes precedence and
     # the two rotations are never stacked.
     compensate_place_orientation_from_grasp_delta: true
@@ -154,7 +154,7 @@ grasp_bridge_state_machine:
     # orientation at every place target. "*" selects current and future targets.
     place_upright_axis_compensation_enabled: true
     place_upright_axis_compensation_profiles: [grasp]
-    place_upright_axis_compensation_arms: [right]
+    place_upright_axis_compensation_arms: [left, right]
     place_upright_axis_compensation_targets: ["*"]
     place_upright_side_grasp_max_vertical_deviation_deg: 45.0
     place_upright_tilt_limit_deg: 3.5

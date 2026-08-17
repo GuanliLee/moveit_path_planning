@@ -501,7 +501,7 @@ def test_upright_place_compensation_is_enabled_for_right_grasp_flow() -> None:
     assert parameters["compensate_place_orientation_from_grasp_delta"] is True
     assert parameters["place_upright_axis_compensation_enabled"] is True
     assert parameters["place_upright_axis_compensation_profiles"] == ["grasp"]
-    assert parameters["place_upright_axis_compensation_arms"] == ["right"]
+    assert parameters["place_upright_axis_compensation_arms"] == ["left", "right"]
     assert parameters["place_upright_axis_compensation_targets"] == ["*"]
     assert parameters[
         "place_upright_side_grasp_max_vertical_deviation_deg"

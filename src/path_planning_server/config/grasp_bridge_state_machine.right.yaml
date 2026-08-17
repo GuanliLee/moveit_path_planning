@@ -122,8 +122,10 @@ grasp_bridge_state_machine:
     # PLACE pose; PLACE_WAYPOINT keeps its orientation and is raised by 8 cm.
     place_lift_before_place: false
     # Keep the saved placement height as the final PLACE target. Only the
-    # generated waypoint is raised by place_descend_offset_m on world Z.
+    # restock flow raises that target by 2 cm; its generated waypoint then
+    # remains place_descend_offset_m above the adjusted final target.
     place_lift_height_m: 0.0
+    restock_place_final_z_offset_m: 0.02
     place_descend_before_place: true
     place_descend_offset_m: 0.08
     # After PLACE opens the gripper, move back along the vertical placement

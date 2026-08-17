@@ -1002,6 +1002,19 @@ class GraspBridgeStateMachine(Node):
         self._place_lift_height_m = float(
             self.declare_parameter("place_lift_height_m", 0.0).value
         )
+        self._restock_place_final_z_offset_m = float(
+            self.declare_parameter(
+                "restock_place_final_z_offset_m",
+                0.0,
+            ).value
+        )
+        if (
+            not math.isfinite(self._restock_place_final_z_offset_m)
+            or not 0.0 <= self._restock_place_final_z_offset_m <= 0.10
+        ):
+            raise ValueError(
+                "restock_place_final_z_offset_m must be finite and in [0, 0.10]"
+            )
         self._place_descend_before_place = bool(
             self.declare_parameter("place_descend_before_place", True).value
         )
@@ -1442,6 +1455,8 @@ class GraspBridgeStateMachine(Node):
             f"tcp_to_link6_m={self._tcp_to_link6_m:.4f}, "
             f"return_home_after_place={self._return_to_initial_pose_after_place}, "
             f"pre_grasp_offset_m={self._pre_grasp_offset_m:.4f}, "
+            f"restock_place_final_z_offset_m="
+            f"{self._restock_place_final_z_offset_m:.4f}, "
             f"retreat_after_grasp=({self._retreat_after_grasp}, "
             f"offset_m={self._retreat_after_grasp_offset_m:.4f}), "
             f"retreat_after_place=({self._retreat_after_place}, "
@@ -1806,6 +1821,21 @@ class GraspBridgeStateMachine(Node):
             place_pose = self._configured_pick_place_pose
         else:
             place_pose = self._configured_place_pose
+        if task_profile == "grasp" and self._restock_place_final_z_offset_m > 0.0:
+            try:
+                nominal_place_world = self._copy_pose(self._pose_to_world(place_pose))
+                place_pose = _elevated_place_waypoint(
+                    nominal_place_world,
+                    self._restock_place_final_z_offset_m,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return False, f"failed to raise the final restock place pose: {exc}"
+            self.get_logger().info(
+                "Raised final restock place pose along world +Z: "
+                f"offset_m={self._restock_place_final_z_offset_m:.4f}, "
+                f"nominal_z_m={nominal_place_world.pose.position.z:.6f}, "
+                f"adjusted_z_m={place_pose.pose.position.z:.6f}"
+            )
         upright_place_scope_enabled = (
             self._place_upright_axis_compensation_enabled
             and task_profile in self._place_upright_axis_compensation_profiles

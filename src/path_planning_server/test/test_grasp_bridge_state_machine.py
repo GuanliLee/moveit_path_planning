@@ -185,24 +185,26 @@ def test_guarded_release_rejects_incomplete_joint_state() -> None:
         _arm_joint_positions_from_state(joint_state, "right")
 
 
-def test_place_waypoint_is_eight_centimeters_above_final_pose() -> None:
-    final_pose = PoseStamped()
-    final_pose.header.frame_id = "world"
-    final_pose.pose.position.x = 0.489322903785962
-    final_pose.pose.position.y = -0.020938377004554136
-    final_pose.pose.position.z = 0.30619623218684644
-    final_pose.pose.orientation.x = -0.11241760487545066
-    final_pose.pose.orientation.y = 0.6525535082516751
-    final_pose.pose.orientation.z = 0.17339098968769825
-    final_pose.pose.orientation.w = 0.7290211009824191
+def test_restock_final_pose_is_raised_two_centimeters_before_waypoint() -> None:
+    nominal_pose = PoseStamped()
+    nominal_pose.header.frame_id = "world"
+    nominal_pose.pose.position.x = 0.489322903785962
+    nominal_pose.pose.position.y = -0.020938377004554136
+    nominal_pose.pose.position.z = 0.30619623218684644
+    nominal_pose.pose.orientation.x = -0.11241760487545066
+    nominal_pose.pose.orientation.y = 0.6525535082516751
+    nominal_pose.pose.orientation.z = 0.17339098968769825
+    nominal_pose.pose.orientation.w = 0.7290211009824191
 
+    final_pose = _elevated_place_waypoint(nominal_pose, 0.02)
     waypoint = _elevated_place_waypoint(final_pose, 0.08)
 
-    assert final_pose.pose.position.z == pytest.approx(0.30619623218684644)
+    assert nominal_pose.pose.position.z == pytest.approx(0.30619623218684644)
+    assert final_pose.pose.position.z == pytest.approx(0.32619623218684644)
     assert waypoint.header.frame_id == "world"
     assert waypoint.pose.position.x == pytest.approx(final_pose.pose.position.x)
     assert waypoint.pose.position.y == pytest.approx(final_pose.pose.position.y)
-    assert waypoint.pose.position.z == pytest.approx(0.38619623218684643)
+    assert waypoint.pose.position.z == pytest.approx(0.40619623218684643)
     assert waypoint.pose.orientation == final_pose.pose.orientation
 
 
@@ -546,6 +548,7 @@ def test_right_arm_config_uses_six_centimeter_pregrasp_and_retreat() -> None:
     assert parameters["lift_offset_m"] == pytest.approx(0.03)
     assert parameters["place_lift_before_place"] is False
     assert parameters["place_lift_height_m"] == pytest.approx(0.0)
+    assert parameters["restock_place_final_z_offset_m"] == pytest.approx(0.02)
     assert parameters["place_descend_offset_m"] == pytest.approx(0.08)
     assert parameters["retreat_after_place"] is True
     assert parameters["retreat_after_place_offset_m"] == pytest.approx(0.05)

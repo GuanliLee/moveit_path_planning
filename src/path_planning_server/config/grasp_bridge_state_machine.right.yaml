@@ -145,15 +145,16 @@ grasp_bridge_state_machine:
     # mode. When both apply, the upright-axis mode below takes precedence and
     # the two rotations are never stacked.
     compensate_place_orientation_from_grasp_delta: true
-    # A vertical can is world +Z when GRASP closes. Record the live TCP at that
-    # moment, infer the can axis in TCP coordinates, and minimally rotate the
-    # complete gripper orientation at every place target so that axis is world
-    # +Z again. XYZ remains unchanged and the opening direction rotates with it.
-    # Reach final PLACE while still closed, then release only when live-TCP
-    # prediction says the can tilt is no more than 3.5 degrees.
+    # Only allowlisted cans with a side-grasp approach use upright correction.
+    # An approach axis within 45 degrees of the horizontal plane is treated as
+    # a side grasp. Top grasps and every non-can target keep the nominal place
+    # orientation. For an eligible can, record its world +Z axis when GRASP
+    # closes and rotate the complete gripper orientation at every place target.
     place_upright_axis_compensation_enabled: true
     place_upright_axis_compensation_profiles: [grasp]
     place_upright_axis_compensation_arms: [right]
+    place_upright_axis_compensation_targets: ["Coca-Cola", "wanglaoji", "HK Orange Fanta"]
+    place_upright_side_grasp_max_vertical_deviation_deg: 45.0
     place_upright_tilt_limit_deg: 3.5
     grasp_ik_fallback_profiles: [grasp]
     grasp_ik_fallback_local_y_degrees: [3.0, -3.0, 5.0, -5.0, 8.0, -8.0]

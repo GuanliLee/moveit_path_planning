@@ -521,6 +521,24 @@ def _normalized_axis(axis: Iterable[float], label: str) -> np.ndarray:
     return vector / norm
 
 
+def _normalized_target_key(target_name: Any) -> str:
+    """Normalize a target prompt for exact, case-insensitive allowlist checks."""
+    return " ".join(str(target_name).split()).casefold()
+
+
+def _grasp_approach_vertical_deviation_degrees(
+    approach_axis_world: Iterable[float],
+) -> float:
+    """Return an approach axis's unsigned angle away from the horizontal plane."""
+    approach_axis = _normalized_axis(
+        approach_axis_world,
+        "grasp_approach_axis_world",
+    )
+    return math.degrees(
+        math.asin(float(np.clip(abs(approach_axis[2]), 0.0, 1.0)))
+    )
+
+
 def _rotation_aligning_vectors(
     source_axis: Iterable[float],
     target_axis: Iterable[float],
@@ -1049,12 +1067,40 @@ class GraspBridgeStateMachine(Node):
                 "place_upright_axis_compensation_arms only supports left and "
                 f"right; got {sorted(unsupported_upright_arms)}"
             )
+        self._place_upright_axis_compensation_targets = frozenset(
+            _normalized_target_key(value)
+            for value in self.declare_parameter(
+                "place_upright_axis_compensation_targets",
+                [""],
+            ).value
+            if _normalized_target_key(value)
+        )
         if self._place_upright_axis_compensation_enabled and (
             not self._place_upright_axis_compensation_profiles
             or not self._place_upright_axis_compensation_arms
+            or not self._place_upright_axis_compensation_targets
         ):
             raise ValueError(
-                "upright place compensation requires at least one profile and arm"
+                "upright place compensation requires at least one profile, arm, "
+                "and target"
+            )
+        self._place_upright_side_grasp_max_vertical_deviation_deg = float(
+            self.declare_parameter(
+                "place_upright_side_grasp_max_vertical_deviation_deg",
+                45.0,
+            ).value
+        )
+        if (
+            not math.isfinite(
+                self._place_upright_side_grasp_max_vertical_deviation_deg
+            )
+            or not 0.0
+            <= self._place_upright_side_grasp_max_vertical_deviation_deg
+            < 90.0
+        ):
+            raise ValueError(
+                "place_upright_side_grasp_max_vertical_deviation_deg must be "
+                "finite and in [0, 90)"
             )
         self._place_upright_tilt_limit_deg = float(
             self.declare_parameter(
@@ -1397,6 +1443,9 @@ class GraspBridgeStateMachine(Node):
             f"{self._place_upright_axis_compensation_enabled}, "
             f"profiles={sorted(self._place_upright_axis_compensation_profiles)}, "
             f"arms={sorted(self._place_upright_axis_compensation_arms)}, "
+            f"targets={sorted(self._place_upright_axis_compensation_targets)}, "
+            f"side_grasp_max_vertical_deviation_deg="
+            f"{self._place_upright_side_grasp_max_vertical_deviation_deg:.2f}, "
             f"release_tilt_limit_deg={self._place_upright_tilt_limit_deg:.2f}), "
             f"ik_orientation_fallback=(enabled={self._grasp_ik_fallback_enabled}, "
             f"profiles={sorted(self._grasp_ik_fallback_profiles)}, "
@@ -1748,17 +1797,25 @@ class GraspBridgeStateMachine(Node):
             place_pose = self._configured_pick_place_pose
         else:
             place_pose = self._configured_place_pose
-        upright_place_active = (
+        upright_place_scope_enabled = (
             self._place_upright_axis_compensation_enabled
             and task_profile in self._place_upright_axis_compensation_profiles
             and arm_name in self._place_upright_axis_compensation_arms
         )
+        upright_place_target_allowlisted = (
+            _normalized_target_key(target_name)
+            in self._place_upright_axis_compensation_targets
+        )
+        upright_place_requested = (
+            upright_place_scope_enabled and upright_place_target_allowlisted
+        )
+        upright_place_active = False
 
         self.get_logger().info(
             "[TIMING] state_machine phase=task_start "
             f"profile={task_profile} target={target_name!r} arm={arm_name} "
             f"scene_id={scene_id} camera_frame={camera_frame} "
-            f"upright_place_active={upright_place_active}"
+            f"upright_place_requested={upright_place_requested}"
         )
         self._clear_target_markers(arm_name)
 
@@ -2039,6 +2096,27 @@ class GraspBridgeStateMachine(Node):
             ]
         except Exception as exc:  # noqa: BLE001
             return False, f"failed to compute grasp TCP axes: {exc}"
+
+        grasp_vertical_deviations_deg = [
+            _grasp_approach_vertical_deviation_degrees(approach_axis)
+            for approach_axis in grasp_approach_axes_world
+        ]
+        side_grasp = all(
+            deviation
+            <= self._place_upright_side_grasp_max_vertical_deviation_deg
+            for deviation in grasp_vertical_deviations_deg
+        )
+        upright_place_active = upright_place_requested and side_grasp
+        self.get_logger().info(
+            "Upright place gate: "
+            f"scope_enabled={upright_place_scope_enabled}, "
+            f"target_allowlisted={upright_place_target_allowlisted}, "
+            f"side_grasp={side_grasp}, active={upright_place_active}, "
+            f"candidate_vertical_deviation_deg="
+            f"{[round(value, 3) for value in grasp_vertical_deviations_deg]}, "
+            f"limit_deg="
+            f"{self._place_upright_side_grasp_max_vertical_deviation_deg:.3f}"
+        )
 
         for index, candidate in enumerate(grasp_pose_candidates):
             approach_axis = grasp_approach_axes_world[index]

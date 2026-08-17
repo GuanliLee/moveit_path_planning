@@ -17,8 +17,10 @@ from grasp_bridge_state_machine import (
     _candidate_indexes_for_step,
     _capture_joint_target_for_profile,
     _elevated_place_waypoint,
+    _grasp_approach_vertical_deviation_degrees,
     _is_no_ik_failure,
     _matrix_from_pose,
+    _normalized_target_key,
     _object_upright_tilt_degrees,
     _place_completion_steps,
     _place_pose_with_grasp_orientation_compensation,
@@ -429,6 +431,35 @@ def test_vector_alignment_handles_opposite_vertical_axes() -> None:
     assert np.linalg.det(rotation) == pytest.approx(1.0)
 
 
+@pytest.mark.parametrize(
+    ("approach_axis", "expected_deviation_deg"),
+    (
+        ((1.0, 0.0, 0.0), 0.0),
+        ((1.0, 0.0, -1.0), 45.0),
+        ((0.0, 0.0, -1.0), 90.0),
+    ),
+)
+def test_side_grasp_deviation_is_measured_from_the_horizontal_plane(
+    approach_axis: tuple[float, float, float],
+    expected_deviation_deg: float,
+) -> None:
+    assert _grasp_approach_vertical_deviation_degrees(
+        approach_axis
+    ) == pytest.approx(expected_deviation_deg)
+
+
+def test_upright_can_allowlist_keys_are_exact_but_case_and_space_insensitive() -> None:
+    allowed = {
+        _normalized_target_key("Coca-Cola"),
+        _normalized_target_key("wanglaoji"),
+        _normalized_target_key("HK Orange Fanta"),
+    }
+
+    assert _normalized_target_key("  HK   ORANGE fanta ") in allowed
+    assert _normalized_target_key("Aojiru") not in allowed
+    assert _normalized_target_key("Sprite") not in allowed
+
+
 def test_upright_place_compensation_is_enabled_for_right_grasp_flow() -> None:
     config_path = (
         Path(__file__).resolve().parents[1]
@@ -443,6 +474,14 @@ def test_upright_place_compensation_is_enabled_for_right_grasp_flow() -> None:
     assert parameters["place_upright_axis_compensation_enabled"] is True
     assert parameters["place_upright_axis_compensation_profiles"] == ["grasp"]
     assert parameters["place_upright_axis_compensation_arms"] == ["right"]
+    assert parameters["place_upright_axis_compensation_targets"] == [
+        "Coca-Cola",
+        "wanglaoji",
+        "HK Orange Fanta",
+    ]
+    assert parameters[
+        "place_upright_side_grasp_max_vertical_deviation_deg"
+    ] == pytest.approx(45.0)
     assert parameters["place_upright_tilt_limit_deg"] == pytest.approx(3.5)
 
 

@@ -130,6 +130,16 @@ grasp_bridge_state_machine:
     grasp_orientation_mode: remote
     pick_grasp_orientation_mode: capture_tcp
     enable_roll_180_grasp_branch: false
+    # Keep the 121 pose as the first choice. Only when MoveIt explicitly
+    # returns "no IK solution", try bounded rotations in the TCP local frame.
+    # Local Y keeps the gripper opening axis fixed and changes approach Z;
+    # local Z keeps approach Z fixed and rotates the opening direction with
+    # the full TCP orientation. The successful candidate is locked through
+    # PRE_GRASP, GRASP and RETREAT_AFTER_GRASP.
+    grasp_ik_fallback_enabled: true
+    grasp_ik_fallback_profiles: [grasp]
+    grasp_ik_fallback_local_y_degrees: [3.0, -3.0, 5.0, -5.0, 8.0, -8.0]
+    grasp_ik_fallback_local_z_degrees: [3.0, -3.0, 5.0, -5.0]
     vertical_down_tcp_orientation_xyzw: [0.43211536819586643, -0.8948553616659032, -0.06568261530057382, -0.0905316757495029]
     left_fixed_tcp_orientation_xyzw: [0.4503663340255283, 0.8820263705427539, -0.05742608216588578, 0.12610270389908398]
     right_fixed_tcp_orientation_xyzw: [0.43211536819586643, -0.8948553616659032, -0.06568261530057382, -0.0905316757495029]

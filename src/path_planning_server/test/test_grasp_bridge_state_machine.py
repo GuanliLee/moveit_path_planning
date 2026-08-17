@@ -10,9 +10,15 @@ from grasp_bridge_state_machine import (
     GraspBridgeStateMachine,
     _PLACE_TRANSPORT_STEP_ORDER,
     _bridge_task_type_for_step,
+    _build_ik_orientation_candidates,
+    _candidate_indexes_for_step,
     _capture_joint_target_for_profile,
     _elevated_place_waypoint,
+    _is_no_ik_failure,
+    _matrix_from_pose,
+    _pose_with_local_orientation_offset,
     _return_home_step,
+    _validated_ik_fallback_degrees,
 )
 
 
@@ -135,6 +141,102 @@ def test_retracted_pose_moves_against_approach_axis() -> None:
     assert retreat.pose.position.z == pytest.approx(0.40)
 
 
+def _arbitrary_grasp_pose() -> PoseStamped:
+    pose = PoseStamped()
+    pose.header.frame_id = "world"
+    pose.pose.position.x = 0.41
+    pose.pose.position.y = -0.17
+    pose.pose.position.z = 0.36
+    quaternion = np.asarray([0.2, -0.3, 0.1, 0.9], dtype=np.float64)
+    quaternion /= np.linalg.norm(quaternion)
+    pose.pose.orientation.x = float(quaternion[0])
+    pose.pose.orientation.y = float(quaternion[1])
+    pose.pose.orientation.z = float(quaternion[2])
+    pose.pose.orientation.w = float(quaternion[3])
+    return pose
+
+
+def test_local_y_fallback_keeps_opening_axis_and_changes_approach_axis() -> None:
+    original = _arbitrary_grasp_pose()
+    rotated = _pose_with_local_orientation_offset(original, "y", 5.0)
+    original_matrix = _matrix_from_pose(original)
+    rotated_matrix = _matrix_from_pose(rotated)
+
+    assert rotated_matrix[:3, 3] == pytest.approx(original_matrix[:3, 3])
+    assert rotated_matrix[:3, 1] == pytest.approx(original_matrix[:3, 1])
+    assert float(np.dot(rotated_matrix[:3, 2], original_matrix[:3, 2])) == pytest.approx(
+        np.cos(np.deg2rad(5.0))
+    )
+
+
+def test_local_z_fallback_rotates_opening_axis_with_full_tcp_pose() -> None:
+    original = _arbitrary_grasp_pose()
+    rotated = _pose_with_local_orientation_offset(original, "z", -5.0)
+    original_matrix = _matrix_from_pose(original)
+    rotated_matrix = _matrix_from_pose(rotated)
+
+    assert rotated_matrix[:3, 3] == pytest.approx(original_matrix[:3, 3])
+    assert rotated_matrix[:3, 2] == pytest.approx(original_matrix[:3, 2])
+    assert float(np.dot(rotated_matrix[:3, 1], original_matrix[:3, 1])) == pytest.approx(
+        np.cos(np.deg2rad(5.0))
+    )
+    assert not np.allclose(rotated_matrix[:3, 1], original_matrix[:3, 1])
+    rotated_quaternion = np.asarray(
+        [
+            rotated.pose.orientation.x,
+            rotated.pose.orientation.y,
+            rotated.pose.orientation.z,
+            rotated.pose.orientation.w,
+        ]
+    )
+    assert np.linalg.norm(rotated_quaternion) == pytest.approx(1.0)
+
+
+def test_ik_fallback_candidate_order_is_original_then_y_then_z() -> None:
+    candidates = _build_ik_orientation_candidates(
+        _arbitrary_grasp_pose(),
+        [3.0, -3.0, 5.0, -5.0, 8.0, -8.0],
+        [3.0, -3.0, 5.0, -5.0],
+    )
+
+    assert [candidate.name for candidate in candidates] == [
+        "original",
+        "local_y_+3deg",
+        "local_y_-3deg",
+        "local_y_+5deg",
+        "local_y_-5deg",
+        "local_y_+8deg",
+        "local_y_-8deg",
+        "local_z_+3deg",
+        "local_z_-3deg",
+        "local_z_+5deg",
+        "local_z_-5deg",
+    ]
+
+
+def test_grasp_candidate_lock_is_reused_by_coupled_steps() -> None:
+    assert _candidate_indexes_for_step("PRE_GRASP", 11, None) == tuple(range(11))
+    assert _candidate_indexes_for_step("GRASP", 11, 4) == (4,)
+    assert _candidate_indexes_for_step("RETREAT_AFTER_GRASP", 11, 4) == (4,)
+    assert _candidate_indexes_for_step("PLACE", 1, 4) == (0,)
+
+
+def test_only_explicit_no_ik_detail_matches_ik_fallback_condition() -> None:
+    assert _is_no_ik_failure("Target pose has no IK solution")
+    assert _is_no_ik_failure("PLANNING FAILED: target pose has NO IK SOLUTION")
+    assert not _is_no_ik_failure("Planning failed due to collision")
+    assert not _is_no_ik_failure("Trajectory execution failed")
+
+
+def test_ik_fallback_angles_are_bounded_and_deduplicated() -> None:
+    assert _validated_ik_fallback_degrees(
+        [3.0, -3.0, 3.0],
+        "angles",
+    ) == (3.0, -3.0)
+    with pytest.raises(ValueError, match="must not exceed"):
+        _validated_ik_fallback_degrees([16.0], "angles")
+
+
 def test_right_arm_config_uses_six_centimeter_pregrasp_and_retreat() -> None:
     config_path = (
         Path(__file__).resolve().parents[1]
@@ -163,3 +265,11 @@ def test_right_arm_config_uses_six_centimeter_pregrasp_and_retreat() -> None:
         0.928927888,
         0.106338624,
     ])
+    assert parameters["grasp_ik_fallback_enabled"] is True
+    assert parameters["grasp_ik_fallback_profiles"] == ["grasp"]
+    assert parameters["grasp_ik_fallback_local_y_degrees"] == pytest.approx(
+        [3.0, -3.0, 5.0, -5.0, 8.0, -8.0]
+    )
+    assert parameters["grasp_ik_fallback_local_z_degrees"] == pytest.approx(
+        [3.0, -3.0, 5.0, -5.0]
+    )

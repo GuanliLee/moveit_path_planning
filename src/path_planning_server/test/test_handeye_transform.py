@@ -249,14 +249,14 @@ def test_capture_sync_configuration_is_fail_closed_after_settle() -> None:
     assert parameters["sensor_require_post_open_frames"] is True
     assert parameters["sensor_discard_pairs_after_barrier"] == 2
     assert parameters["sensor_max_stamp_skew_s"] == 0.005
-    assert parameters["sensor_max_arrival_skew_s"] == 0.02
+    assert parameters["sensor_max_arrival_skew_s"] == 0.15
     assert parameters["sensor_max_arrival_age_s"] == 0.15
     assert parameters["capture_stationary_translation_m"] == 0.002
     assert parameters["capture_stationary_rotation_deg"] == 1.0
     assert parameters["capture_tf_max_age_s"] == 0.20
     assert parameters["capture_tf_advance_timeout_s"] == 0.50
     assert parameters["sensor_discard_pairs_after_barrier"] < parameters["sensor_queue_size"]
-    assert execution_source.index("time.sleep(open_settle_s)") < execution_source.index(
+    assert execution_source.index("self._sleep_interruptibly(open_settle_s)") < execution_source.index(
         "self._capture_sensor_snapshot"
     )
     assert "barrier_monotonic_s = time.monotonic()" in capture_source
@@ -330,15 +330,16 @@ def test_remote_gripper_end_pose_is_forwarded_without_rebase() -> None:
     assert "planning_grasp_tcp_from_121" in execution_source
 
 
-def test_grasp_uses_remote_axis_pregrasp_before_final_target() -> None:
+def test_grasp_uses_candidate_axis_pregrasp_before_final_target() -> None:
     parameters = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))[
         "grasp_bridge_state_machine"
     ]["ros__parameters"]
     execution_source = _function_source("_execute_named")
 
     assert parameters["pre_grasp_before_grasp"] is True
-    assert parameters["pre_grasp_offset_m"] == 0.08
-    assert "_pre_grasp_pose_from_axis" in execution_source
+    assert parameters["pre_grasp_offset_m"] == 0.06
+    assert "_retracted_pose_from_axis" in execution_source
+    assert "grasp_approach_axes_world" in execution_source
     assert execution_source.index('steps.append((\'PRE_GRASP\'') < execution_source.index(
         'steps.append((\'GRASP\''
     )

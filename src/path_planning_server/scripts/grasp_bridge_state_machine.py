@@ -52,6 +52,16 @@ _CARRYING_BRIDGE_STEPS = frozenset(
 
 _PLACE_TRANSPORT_STEP_ORDER = ("PLACE_LIFT", "PLACE_ORIENT", "PLACE_XY")
 
+_GRASP_CANDIDATE_STEPS = frozenset(
+    {"PRE_GRASP", "GRASP_APPROACH", "GRASP", "RETREAT_AFTER_GRASP"}
+)
+
+_GRASP_CANDIDATE_SELECTION_STEPS = frozenset(
+    {"PRE_GRASP", "GRASP_APPROACH", "GRASP"}
+)
+
+_MAX_IK_FALLBACK_ROTATION_DEG = 15.0
+
 
 def _bridge_task_type_for_step(task_type: str) -> str:
     """Map state-machine steps to bridge motion semantics."""
@@ -104,6 +114,14 @@ class RemoteGrasp:
     arm_name: str
     tcp_pose: PoseStamped
     gripper_width_m: float
+
+
+@dataclass(frozen=True)
+class GraspPoseCandidate:
+    name: str
+    local_axis: str
+    rotation_degrees: float
+    pose: PoseStamped
 
 
 @dataclass(frozen=True)
@@ -334,6 +352,136 @@ def _pose_from_matrix(frame_id: str, matrix: np.ndarray) -> PoseStamped:
     return pose
 
 
+def _validated_ik_fallback_degrees(
+    values: Iterable[float],
+    parameter_name: str,
+) -> Tuple[float, ...]:
+    """Validate and deduplicate bounded local-axis IK fallback angles."""
+    result = []
+    seen = set()
+    for raw_value in values:
+        value = float(raw_value)
+        if not math.isfinite(value) or abs(value) < 1e-9:
+            raise ValueError(f"{parameter_name} must contain finite non-zero degrees")
+        if abs(value) > _MAX_IK_FALLBACK_ROTATION_DEG:
+            raise ValueError(
+                f"{parameter_name} values must not exceed "
+                f"{_MAX_IK_FALLBACK_ROTATION_DEG:.1f} degrees"
+            )
+        key = round(value, 9)
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
+    return tuple(result)
+
+
+def _local_axis_rotation_matrix(local_axis: str, degrees: float) -> np.ndarray:
+    """Return an active rotation about a TCP-local axis."""
+    radians = math.radians(float(degrees))
+    cosine = math.cos(radians)
+    sine = math.sin(radians)
+    axis = local_axis.strip().lower()
+    if axis == "y":
+        return np.asarray(
+            [
+                [cosine, 0.0, sine],
+                [0.0, 1.0, 0.0],
+                [-sine, 0.0, cosine],
+            ],
+            dtype=np.float64,
+        )
+    if axis == "z":
+        return np.asarray(
+            [
+                [cosine, -sine, 0.0],
+                [sine, cosine, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
+    raise ValueError(f"unsupported TCP-local rotation axis: {local_axis!r}")
+
+
+def _pose_with_local_orientation_offset(
+    pose: PoseStamped,
+    local_axis: str,
+    degrees: float,
+) -> PoseStamped:
+    """Rotate the full TCP orientation locally without changing its origin."""
+    transform = _matrix_from_pose(pose)
+    rotated = transform.copy()
+    rotated[:3, :3] = transform[:3, :3] @ _local_axis_rotation_matrix(
+        local_axis,
+        degrees,
+    )
+    output = _pose_from_matrix(pose.header.frame_id, rotated)
+    output.header.stamp = pose.header.stamp
+    return output
+
+
+def _build_ik_orientation_candidates(
+    grasp_pose: PoseStamped,
+    local_y_degrees: Iterable[float],
+    local_z_degrees: Iterable[float],
+) -> list[GraspPoseCandidate]:
+    """Build deterministic small-angle candidates after the original pose."""
+    candidates = [
+        GraspPoseCandidate(
+            name="original",
+            local_axis="none",
+            rotation_degrees=0.0,
+            pose=grasp_pose,
+        )
+    ]
+    for local_axis, values in (("y", local_y_degrees), ("z", local_z_degrees)):
+        for degrees in values:
+            value = float(degrees)
+            candidates.append(
+                GraspPoseCandidate(
+                    name=f"local_{local_axis}_{value:+g}deg",
+                    local_axis=local_axis,
+                    rotation_degrees=value,
+                    pose=_pose_with_local_orientation_offset(
+                        grasp_pose,
+                        local_axis,
+                        value,
+                    ),
+                )
+            )
+    return candidates
+
+
+def _pose_local_axis_world(pose: PoseStamped, local_axis: str) -> np.ndarray:
+    """Return a normalized TCP-local axis expressed in the world frame."""
+    axis_indexes = {"x": 0, "y": 1, "z": 2}
+    axis_name = local_axis.strip().lower()
+    if axis_name not in axis_indexes:
+        raise ValueError(f"unsupported TCP-local axis: {local_axis!r}")
+    axis = np.asarray(
+        _matrix_from_pose(pose)[:3, axis_indexes[axis_name]],
+        dtype=np.float64,
+    )
+    norm = float(np.linalg.norm(axis))
+    if norm < 1e-9 or not math.isfinite(norm):
+        raise ValueError(f"TCP-local {axis_name.upper()} axis is zero or non-finite")
+    return axis / norm
+
+
+def _candidate_indexes_for_step(
+    task_type: str,
+    candidate_count: int,
+    selected_grasp_candidate_index: Optional[int],
+) -> Tuple[int, ...]:
+    """Lock all coupled grasp steps to the first successful candidate."""
+    if candidate_count < 1:
+        raise ValueError("candidate_count must be positive")
+    if task_type in _GRASP_CANDIDATE_STEPS and selected_grasp_candidate_index is not None:
+        if not 0 <= selected_grasp_candidate_index < candidate_count:
+            raise ValueError("selected grasp candidate index is out of range")
+        return (selected_grasp_candidate_index,)
+    return tuple(range(candidate_count))
+
+
 def _build_target_marker_array(
     arm_name: str,
     target_name: str,
@@ -543,6 +691,10 @@ def _is_planning_failure(detail: str) -> bool:
     return "planning failed" in detail.strip().lower()
 
 
+def _is_no_ik_failure(detail: str) -> bool:
+    return "no ik solution" in detail.strip().lower()
+
+
 class GraspBridgeStateMachine(Node):
     def __init__(self) -> None:
         super().__init__("grasp_bridge_state_machine")
@@ -644,6 +796,54 @@ class GraspBridgeStateMachine(Node):
         self._enable_roll_180_grasp_branch = bool(
             self.declare_parameter("enable_roll_180_grasp_branch", True).value
         )
+        self._grasp_ik_fallback_enabled = bool(
+            self.declare_parameter("grasp_ik_fallback_enabled", False).value
+        )
+        self._grasp_ik_fallback_profiles = frozenset(
+            str(value).strip().lower()
+            for value in self.declare_parameter(
+                "grasp_ik_fallback_profiles",
+                ["grasp"],
+            ).value
+            if str(value).strip()
+        )
+        unsupported_fallback_profiles = self._grasp_ik_fallback_profiles.difference(
+            {"grasp", "pick"}
+        )
+        if unsupported_fallback_profiles:
+            raise ValueError(
+                "grasp_ik_fallback_profiles only supports grasp and pick; got "
+                f"{sorted(unsupported_fallback_profiles)}"
+            )
+        self._grasp_ik_fallback_local_y_degrees = _validated_ik_fallback_degrees(
+            self.declare_parameter(
+                "grasp_ik_fallback_local_y_degrees",
+                [3.0, -3.0, 5.0, -5.0, 8.0, -8.0],
+            ).value,
+            "grasp_ik_fallback_local_y_degrees",
+        )
+        self._grasp_ik_fallback_local_z_degrees = _validated_ik_fallback_degrees(
+            self.declare_parameter(
+                "grasp_ik_fallback_local_z_degrees",
+                [3.0, -3.0, 5.0, -5.0],
+            ).value,
+            "grasp_ik_fallback_local_z_degrees",
+        )
+        if (
+            self._grasp_ik_fallback_enabled
+            and not self._grasp_ik_fallback_profiles
+        ):
+            raise ValueError(
+                "grasp_ik_fallback_profiles must not be empty when fallback is enabled"
+            )
+        if (
+            self._grasp_ik_fallback_enabled
+            and not self._grasp_ik_fallback_local_y_degrees
+            and not self._grasp_ik_fallback_local_z_degrees
+        ):
+            raise ValueError(
+                "at least one grasp IK fallback angle must be configured when enabled"
+            )
         self._vertical_down_tcp_orientation = _normalize_quaternion(
             self.declare_parameter(
                 "vertical_down_tcp_orientation_xyzw",
@@ -919,6 +1119,10 @@ class GraspBridgeStateMachine(Node):
             f"pre_grasp_offset_m={self._pre_grasp_offset_m:.4f}, "
             f"retreat_after_grasp=({self._retreat_after_grasp}, "
             f"offset_m={self._retreat_after_grasp_offset_m:.4f}), "
+            f"ik_orientation_fallback=(enabled={self._grasp_ik_fallback_enabled}, "
+            f"profiles={sorted(self._grasp_ik_fallback_profiles)}, "
+            f"local_y_deg={list(self._grasp_ik_fallback_local_y_degrees)}, "
+            f"local_z_deg={list(self._grasp_ik_fallback_local_z_degrees)}), "
             f"sensor_sync=(queue={self._sensor_queue_size}, "
             f"discard={self._sensor_discard_pairs_after_barrier}, "
             f"header_skew_ms={self._sensor_max_stamp_skew_s * 1000.0:.1f}, "
@@ -1454,10 +1658,16 @@ class GraspBridgeStateMachine(Node):
             f"elapsed_ms={(time.monotonic() - phase_started) * 1000.0:.1f}"
         )
         self.get_logger().info(_pose_log_text("capture_world_grasp_tcp", grasp_pose))
-        try:
-            grasp_approach_axis_world = self._grasp_approach_axis_world(grasp_pose)
-        except Exception as exc:  # noqa: BLE001
-            return False, f"failed to compute grasp approach axis: {exc}"
+
+        ik_fallback_active = (
+            self._grasp_ik_fallback_enabled
+            and task_profile in self._grasp_ik_fallback_profiles
+        )
+        if ik_fallback_active and self._enable_roll_180_grasp_branch:
+            self.get_logger().warn(
+                "Small-angle IK fallback is active; suppressing the separate "
+                "180-degree grasp branch for this task"
+            )
 
         grasp_orientation_mode = (
             self._pick_grasp_orientation_mode
@@ -1480,7 +1690,7 @@ class GraspBridgeStateMachine(Node):
             grasp_poses = [grasp_pose]
         elif grasp_orientation_mode in ("remote_level_opening", "level_opening"):
             grasp_pose = self._level_grasp_opening_axis(grasp_pose)
-            if self._enable_roll_180_grasp_branch:
+            if self._enable_roll_180_grasp_branch and not ik_fallback_active:
                 grasp_poses = self._ordered_roll_180_grasp_poses(arm_name, grasp_pose)
             else:
                 grasp_poses = [grasp_pose]
@@ -1494,7 +1704,7 @@ class GraspBridgeStateMachine(Node):
                 "vertical_down, fixed_tcp, capture_tcp, or current_tcp, "
                 f"got {grasp_orientation_mode!r}"
             )
-        elif self._enable_roll_180_grasp_branch:
+        elif self._enable_roll_180_grasp_branch and not ik_fallback_active:
             grasp_poses = self._ordered_roll_180_grasp_poses(arm_name, grasp_pose)
 
         if self._grasp_z_offset_m != 0.0:
@@ -1505,6 +1715,52 @@ class GraspBridgeStateMachine(Node):
                 offset_grasp_poses.append(pose)
                 self.get_logger().info(_pose_log_text("z_offset_remote_planning_tcp", pose))
             grasp_poses = offset_grasp_poses
+
+        if ik_fallback_active:
+            if len(grasp_poses) != 1:
+                return False, (
+                    "internal error: small-angle IK fallback requires one base grasp pose"
+                )
+            grasp_pose_candidates = _build_ik_orientation_candidates(
+                grasp_poses[0],
+                self._grasp_ik_fallback_local_y_degrees,
+                self._grasp_ik_fallback_local_z_degrees,
+            )
+            grasp_poses = [candidate.pose for candidate in grasp_pose_candidates]
+        else:
+            grasp_pose_candidates = [
+                GraspPoseCandidate(
+                    name="original" if len(grasp_poses) == 1 else f"orientation_{index + 1}",
+                    local_axis="none",
+                    rotation_degrees=0.0,
+                    pose=pose,
+                )
+                for index, pose in enumerate(grasp_poses)
+            ]
+
+        try:
+            grasp_approach_axes_world = [
+                _pose_local_axis_world(pose, "z") for pose in grasp_poses
+            ]
+            grasp_opening_axes_world = [
+                _pose_local_axis_world(pose, "y") for pose in grasp_poses
+            ]
+        except Exception as exc:  # noqa: BLE001
+            return False, f"failed to compute grasp TCP axes: {exc}"
+
+        for index, candidate in enumerate(grasp_pose_candidates):
+            approach_axis = grasp_approach_axes_world[index]
+            opening_axis = grasp_opening_axes_world[index]
+            self.get_logger().info(
+                "grasp IK orientation candidate "
+                f"{index + 1}/{len(grasp_pose_candidates)}: "
+                f"name={candidate.name}, local_axis={candidate.local_axis}, "
+                f"rotation_deg={candidate.rotation_degrees:+.1f}, "
+                f"opening_y_world=({opening_axis[0]:.4f}, {opening_axis[1]:.4f}, "
+                f"{opening_axis[2]:.4f}), "
+                f"approach_z_world=({approach_axis[0]:.4f}, {approach_axis[1]:.4f}, "
+                f"{approach_axis[2]:.4f})"
+            )
 
         # The returned 121 grasp origin is already the physical gripper-end
         # center consumed by the local MoveIt bridge (the 135.8 mm planning
@@ -1519,12 +1775,15 @@ class GraspBridgeStateMachine(Node):
             pre_grasp_poses = [
                 self._retracted_pose_from_axis(
                     pose,
-                    grasp_approach_axis_world,
+                    approach_axis,
                     self._pre_grasp_offset_m,
                     log_label="pre_grasp_from_approach_axis",
                     min_z_m=self._pre_grasp_min_z_m,
                 )
-                for pose in grasp_poses
+                for pose, approach_axis in zip(
+                    grasp_poses,
+                    grasp_approach_axes_world,
+                )
             ]
             steps.append(("PRE_GRASP", pre_grasp_poses, True, open_width))
         marker_grasp_pose = grasp_poses[0]
@@ -1547,12 +1806,15 @@ class GraspBridgeStateMachine(Node):
             retreat_poses = [
                 self._retracted_pose_from_axis(
                     pose,
-                    grasp_approach_axis_world,
+                    approach_axis,
                     self._retreat_after_grasp_offset_m,
                     log_label="retreat_after_grasp_from_approach_axis",
                     min_z_m=0.0,
                 )
-                for pose in grasp_poses
+                for pose, approach_axis in zip(
+                    grasp_poses,
+                    grasp_approach_axes_world,
+                )
             ]
             steps.append(("RETREAT_AFTER_GRASP", retreat_poses, False, 0.0))
 
@@ -1583,6 +1845,7 @@ class GraspBridgeStateMachine(Node):
         if self._return_to_initial_pose_after_place:
             steps.append(_return_home_step(self._copy_pose(initial_pose)))
 
+        selected_grasp_candidate_index: Optional[int] = None
         for index, (task_type, pose, gripper_command, gripper_opening) in enumerate(steps, start=1):
             if task_type == "LIFT_AFTER_GRASP":
                 try:
@@ -1668,13 +1931,31 @@ class GraspBridgeStateMachine(Node):
             bridge_task_type = _bridge_task_type_for_step(task_type)
 
             pose_candidates = pose if isinstance(pose, list) else [pose]
+            candidate_indexes = _candidate_indexes_for_step(
+                task_type,
+                len(pose_candidates),
+                selected_grasp_candidate_index,
+            )
+            is_grasp_candidate_step = (
+                task_type in _GRASP_CANDIDATE_STEPS
+                and len(pose_candidates) == len(grasp_pose_candidates)
+            )
+            success = False
             last_detail = ""
-            for candidate_index, candidate_pose in enumerate(pose_candidates, start=1):
+            for candidate_position, candidate_zero_index in enumerate(candidate_indexes):
+                candidate_pose = pose_candidates[candidate_zero_index]
                 assert candidate_pose is not None
+                candidate_index = candidate_zero_index + 1
+                candidate_name = (
+                    grasp_pose_candidates[candidate_zero_index].name
+                    if is_grasp_candidate_step
+                    else "direct"
+                )
                 for attempt in range(1, self._planning_retry_attempts + 1):
                     self.get_logger().info(
                         f"Starting bridge step {index}/{len(steps)}: {task_type}"
                         f"[{candidate_index}/{len(pose_candidates)}] "
+                        f"candidate_name={candidate_name} "
                         f"attempt {attempt}/{self._planning_retry_attempts}, "
                         + _pose_log_text("tcp_target", candidate_pose)
                     )
@@ -1704,6 +1985,12 @@ class GraspBridgeStateMachine(Node):
                         last_detail = detail
                         break
                     last_detail = detail
+                    if _is_no_ik_failure(detail):
+                        self.get_logger().warn(
+                            f"{task_type} candidate {candidate_index}/"
+                            f"{len(pose_candidates)} ({candidate_name}) has no IK solution"
+                        )
+                        break
                     if _is_planning_failure(detail) and attempt < self._planning_retry_attempts:
                         self.get_logger().warn(
                             f"{task_type} candidate {candidate_index}/{len(pose_candidates)} "
@@ -1717,7 +2004,53 @@ class GraspBridgeStateMachine(Node):
                     )
                     break
                 if success:
+                    if (
+                        is_grasp_candidate_step
+                        and task_type in _GRASP_CANDIDATE_SELECTION_STEPS
+                        and selected_grasp_candidate_index is None
+                    ):
+                        selected_grasp_candidate_index = candidate_zero_index
+                        marker_grasp_pose = grasp_poses[candidate_zero_index]
+                        marker_pre_grasp_pose = (
+                            pre_grasp_poses[candidate_zero_index]
+                            if pre_grasp_poses
+                            else None
+                        )
+                        self.get_logger().info(
+                            "Locked grasp orientation candidate for all coupled steps: "
+                            f"index={candidate_index}/{len(grasp_pose_candidates)}, "
+                            f"name={candidate_name}, selected_by={task_type}"
+                        )
+                        self._publish_target_markers(
+                            arm_name,
+                            target_name,
+                            marker_grasp_pose,
+                            marker_pre_grasp_pose,
+                            "pending",
+                            f"locked IK candidate {candidate_name}",
+                        )
                     break
+
+                has_next_candidate = candidate_position + 1 < len(candidate_indexes)
+                if (
+                    ik_fallback_active
+                    and is_grasp_candidate_step
+                    and selected_grasp_candidate_index is None
+                    and _is_no_ik_failure(last_detail)
+                    and has_next_candidate
+                ):
+                    next_zero_index = candidate_indexes[candidate_position + 1]
+                    next_candidate = grasp_pose_candidates[next_zero_index]
+                    self.get_logger().warn(
+                        "No IK for grasp orientation candidate; trying the next "
+                        "small local rotation: "
+                        f"failed={candidate_name}, next={next_candidate.name}"
+                    )
+                    continue
+                if not ik_fallback_active and has_next_candidate:
+                    # Preserve the optional legacy 180-degree branch behavior.
+                    continue
+                break
             if not success:
                 self._publish_target_markers(
                     arm_name,
